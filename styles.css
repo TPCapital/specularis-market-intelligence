@@ -104,6 +104,25 @@ h1 {
   margin-bottom: 22px;
 }
 
+.scanner-status-bar {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin: -8px 0 18px;
+}
+
+.scanner-status-bar span {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 10px;
+  color: var(--soft);
+  background: rgba(255, 255, 255, 0.035);
+  font-size: 11px;
+  font-weight: 760;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .workspace-grid {
   grid-template-columns: minmax(720px, 1.55fr) minmax(480px, 0.95fr);
   align-items: start;
@@ -133,7 +152,9 @@ h1 {
 .news-card,
 .market-summary-card,
 .source-card,
-.intel-panel {
+.intel-panel,
+.trade-plan-card,
+.opportunity-card {
   border: 1px solid var(--line);
   background: linear-gradient(180deg, var(--panel-strong), var(--panel));
   box-shadow: var(--shadow);
@@ -298,9 +319,14 @@ body[data-risk="neutral"] .strategy-panel h2 {
 .news-grid,
 .source-grid,
 .options-grid,
+.opportunity-grid,
 .intel-grid {
   display: grid;
   gap: 10px;
+}
+
+.opportunity-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .source-grid {
@@ -382,7 +408,9 @@ body[data-risk="neutral"] .strategy-panel h2 {
 .star-card,
 .news-card,
 .market-summary-card,
-.intel-panel {
+.intel-panel,
+.trade-plan-card,
+.opportunity-card {
   padding: 16px;
 }
 
@@ -452,15 +480,150 @@ body[data-risk="neutral"] .strategy-panel h2 {
   color: var(--text);
 }
 
+.opportunity-card {
+  display: grid;
+  gap: 9px;
+  min-height: 188px;
+}
+
+.opportunity-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+
+.opportunity-head strong {
+  display: block;
+  font-size: 25px;
+  line-height: 1;
+}
+
+.opportunity-head span,
+.opportunity-meta,
+.risk-tags {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.opportunity-head b {
+  color: var(--text);
+  font-size: 31px;
+  font-variant-numeric: tabular-nums;
+}
+
+.signal-pill {
+  width: fit-content;
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+}
+
+.opportunity-card p {
+  margin: 0;
+  color: var(--soft);
+  font-size: 13px;
+  line-height: 1.38;
+}
+
+.opportunity-meta,
+.risk-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.opportunity-meta span,
+.risk-tags span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 7px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.signal-long {
+  border-color: rgba(30, 215, 130, 0.42);
+  box-shadow: 0 0 30px rgba(30, 215, 130, 0.1), var(--shadow);
+}
+
+.signal-watch {
+  border-color: rgba(213, 173, 91, 0.48);
+  box-shadow: 0 0 30px rgba(213, 173, 91, 0.1), var(--shadow);
+}
+
+.signal-hedge {
+  border-color: rgba(255, 79, 100, 0.42);
+  box-shadow: 0 0 30px rgba(255, 79, 100, 0.1), var(--shadow);
+}
+
+.signal-ignore {
+  border-color: rgba(255, 255, 255, 0.1);
+  opacity: 0.72;
+}
+
+.trade-plan-card h3 {
+  margin: 0 0 8px;
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.trade-plan-card p {
+  color: var(--soft);
+  line-height: 1.42;
+}
+
+.plan-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.plan-list div {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.plan-list span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--gold);
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.plan-list p {
+  margin: 0 0 5px;
+  font-size: 13px;
+}
+
 .module-footnote {
   margin: 10px 0 0;
   border-top: 1px solid var(--line);
   padding-top: 8px;
 }
 
-.news-original {
-  margin-top: 5px;
+.news-title-cn {
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.news-title-en {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 15px;
   font-style: normal;
+  line-height: 1.35;
 }
 
 .sentiment-gauge-card {
@@ -841,6 +1004,12 @@ body[data-risk="neutral"] .strategy-panel h2 {
   line-height: 1.18;
 }
 
+.news-card summary .news-title-cn {
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
 .news-card details[open] summary {
   margin-bottom: 12px;
 }
@@ -865,6 +1034,7 @@ body[data-risk="neutral"] .strategy-panel h2 {
   .flow-grid,
   .news-grid,
   .options-grid,
+  .opportunity-grid,
   .intel-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -880,6 +1050,7 @@ body[data-risk="neutral"] .strategy-panel h2 {
   .hero-grid,
   .split,
   .intel-grid,
+  .scanner-status-bar,
   .command-grid,
   .workspace-grid {
     grid-template-columns: 1fr;
@@ -899,11 +1070,13 @@ body[data-risk="neutral"] .strategy-panel h2 {
   }
 
   .topbar,
+  .scanner-status-bar,
   .workspace-grid,
   .card-grid.six,
   .card-grid.three,
   .flow-grid,
   .options-grid,
+  .opportunity-grid,
   .star-grid,
   .news-grid,
   .source-grid,
@@ -925,6 +1098,7 @@ body[data-risk="neutral"] .strategy-panel h2 {
   .strategy-panel,
   .metric-card,
   .flow-card,
+  .opportunity-card,
   .mover-card,
   .verdict-card,
   .tape-card,
@@ -934,6 +1108,10 @@ body[data-risk="neutral"] .strategy-panel h2 {
   .source-card,
   .intel-panel {
     padding: 15px;
+  }
+
+  .plan-list {
+    grid-template-columns: 1fr;
   }
 
   .sentiment-gauge-card,

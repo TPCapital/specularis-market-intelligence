@@ -43,6 +43,14 @@
         </article>
       </section>
 
+      <section class="scanner-status-bar">
+        <span id="rvLeader">Relative Volume Leader --</span>
+        <span id="strongestSector">Strongest Sector --</span>
+        <span id="riskAppetite">Risk Appetite --</span>
+        <span id="premarketMomentum">Premarket Momentum --</span>
+        <span id="openingBias">Opening Bias --</span>
+      </section>
+
       <section class="workspace-grid">
         <div class="primary-column">
           <section class="section focus-panel">
@@ -55,6 +63,14 @@
               <h3 id="starSummary">强势股自动筛选</h3>
               <p>按涨幅、相对强弱、成交活跃度、板块热度与催化可信度加权。</p>
             </aside>
+          </section>
+
+          <section class="section">
+            <div class="section-title">
+              <h2>今日机会榜 <small>PREMARKET OPPORTUNITY SCANNER</small></h2>
+              <span id="opportunityModuleMeta">WATCH · --</span>
+            </div>
+            <div id="opportunityGrid" class="opportunity-grid loading-zone is-loading"></div>
           </section>
 
           <section class="section">
@@ -106,6 +122,18 @@
             <article class="market-summary-card">
               <p class="panel-label">Market Summary</p>
               <h3 id="marketSummary">等待指数刷新。</h3>
+            </article>
+          </section>
+
+          <section class="section">
+            <div class="section-title">
+              <h2>Premarket Trade Plan</h2>
+              <span id="tradePlanModuleMeta">WATCH · --</span>
+            </div>
+            <article class="trade-plan-card">
+              <h3 id="tradePlanTitle">等待机会扫描。</h3>
+              <p id="tradePlanBody">数据刷新后生成盘前交易计划。</p>
+              <div id="tradePlanList" class="plan-list"></div>
             </article>
           </section>
 

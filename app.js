@@ -443,6 +443,15 @@ function buildDashboard(sources) {
   const retail = sources.reddit.data;
   const options = sources.unusualWhales.data;
   const risk = calculateRisk(sources.yahoo.data.indices, sources.sentiment, retail);
+  const opportunities = calculatePremarketOpportunities(sources.yahoo.data.quotes, {
+    flows,
+    news: sources.benzinga.data.news,
+    retail,
+    risk,
+    indices: sources.yahoo.data.indices,
+    options
+  });
+  const tradePlan = buildPremarketTradePlan(opportunities, flows, risk, options);
   const [strategy, strategyContext] = strategyFrom(risk, flows, retail, options);
   const strategyBasis = statusGroup([sources.finviz, sources.unusualWhales, sources.benzinga]);
   const sourceBasis = statusGroup(Object.values(sources).filter((source) => source?.status));
@@ -465,6 +474,8 @@ function buildDashboard(sources) {
       flow: statusGroup([sources.finviz]),
       mover: statusGroup([sources.benzinga]),
       star: statusGroup([sources.tradingView]),
+      opportunity: statusGroup([sources.yahoo, sources.finviz, sources.reddit, sources.benzinga]),
+      tradePlan: statusGroup([sources.yahoo, sources.finviz, sources.unusualWhales]),
       news: statusGroup([sources.benzinga]),
       macro: statusGroup([sources.xMacro]),
       retail: statusGroup([sources.reddit]),
@@ -476,6 +487,9 @@ function buildDashboard(sources) {
     macro: sources.xMacro.data,
     retail,
     options,
+    opportunities,
+    tradePlan,
+    scannerStatus: buildScannerStatus(opportunities, flows, risk),
     flows,
     movers,
     stars,
@@ -624,6 +638,18 @@ function translateNewsTitle(title = "") {
   const original = String(title || "").trim();
   if (!original) return { title: "市场新闻", showOriginal: false };
   const dictionary = [
+    [/Advanced Micro Devices/gi, "AMD"],
+    [/Eli Lilly/gi, "礼来"],
+    [/NVIDIA/gi, "英伟达"],
+    [/Federal Reserve/gi, "美联储"],
+    [/inflation forecast/gi, "通胀预测"],
+    [/Social Security/gi, "社保"],
+    [/profit from AI/gi, "受益于 AI"],
+    [/best stock/gi, "最佳股票"],
+    [/price target/gi, "目标价"],
+    [/trial results/gi, "试验结果"],
+    [/reports/gi, "公布"],
+    [/raises/gi, "上调"],
     [/Patriot Missiles/gi, "爱国者导弹"],
     [/S&P 500/gi, "标普500"],
     [/fund managers/gi, "基金经理"],
@@ -660,13 +686,151 @@ function translateNewsTitle(title = "") {
 
 function classifyNewsBias(title = "", fallbackBias = "中性") {
   const lower = String(title || "").toLowerCase();
-  const bullish = /(beat|raise|upgrade|partnership|contract|\bai\b|launch|demand|growth|guidance raise|buy rating)/.test(lower);
-  const bearish = /(miss|cut|downgrade|lawsuit|investigation|war|tariff|delay|weak demand|warning|loss)/.test(lower);
+  const bullish = /(beat|raise|raises|upgrade|price target|partnership|contract|\bai\b|launch|demand|growth|guidance raise|buy rating)/.test(lower);
+  const bearish = /(miss|cut|downgrade|lawsuit|investigation|war|tariff|delay|weak demand|warning|loss|weak|fallout)/.test(lower);
   const neutral = /(strategy|comparison|analysis|outlook|worth|fund managers)/.test(lower);
   if (bullish && !bearish) return "利好";
   if (bearish && !bullish) return "利空";
   if (neutral) return "中性";
   return ["利好", "利空", "中性"].includes(fallbackBias) ? fallbackBias : "中性";
+}
+
+function calculatePremarketOpportunities(quotes, context) {
+  return (quotes || [])
+    .filter((item) => ["SPY", "QQQ", "NVDA", "AMD", "AVGO", "PLTR", "TSLA", "COIN", "MSTR", "MRVL", "MSFT", "META", "CRWD"].includes(item.symbol))
+    .map((stock) => calculatePremarketOpportunityScore(stock, context))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 8);
+}
+
+function calculatePremarketOpportunityScore(stock, context) {
+  const flowMap = new Map((context.flows || []).map((item) => [item.sector, item]));
+  const mentionMap = new Map(context.retail?.mentions || []);
+  const newsText = (context.news || []).map((item) => `${item.title || ""} ${item.summary || ""}`).join(" ").toLowerCase();
+  const sector = stock.sector || "其他";
+  const gap = Number(stock.preMarketChangePercent ?? stock.preMarketChange ?? stock.regularMarketChangePercent ?? 0);
+  const regularChange = Number(stock.regularMarketChangePercent ?? gap);
+  const relativeVolume = Number(stock.relativeVolume ?? stock.volumeRatio ?? 1);
+  const sectorMomentumScore = flowMap.get(sector)?.score ?? sectorMomentumProxy(sector);
+  const mentionCount = Number(mentionMap.get(stock.symbol) || 0);
+  const retailHeat = clamp(Math.round(mentionCount * 6 + (context.retail?.score || 50) * 0.35));
+  const catalyst = newsCatalystBias(newsText, stock.symbol);
+  const vwapBias = vwapTrendProxy(stock, context, sectorMomentumScore);
+  const gapScore = gap >= 3 ? 20 : gap >= 1.5 ? 15 : gap <= -2 ? 13 : Math.max(0, 8 + gap * 3);
+  const volumeScore = relativeVolume >= 2 ? 25 : relativeVolume >= 1.5 ? 20 : relativeVolume >= 1 ? 13 : 7;
+  const vwapScore = vwapBias === "BULLISH ABOVE VWAP" ? 20 : vwapBias === "WEAK BELOW VWAP" ? 8 : 13;
+  const sectorScore = clamp(sectorMomentumScore) * 0.15;
+  const newsScore = catalyst === "bullish" ? 10 : catalyst === "bearish" ? 7 : 5;
+  const retailScore = clamp(retailHeat) * 0.1;
+  const score = clamp(Math.round(gapScore + volumeScore + vwapScore + sectorScore + newsScore + retailScore));
+  const signal = classifyOpportunitySignal({ score, gap, relativeVolume, sectorMomentumScore, catalyst, risk: context.risk });
+  const openingConfirmation = openingConfirmationState({ relativeVolume, gap, vwapBias, sectorMomentumScore, risk: context.risk, indices: context.indices });
+  const riskTags = opportunityRiskTags({ gap, relativeVolume, mentionCount, score, openingConfirmation, signal });
+  return {
+    symbol: stock.symbol,
+    name: stock.name,
+    sector,
+    score,
+    signal,
+    openingConfirmation,
+    vwapBias,
+    relativeVolume,
+    mentionCount,
+    retailHeat,
+    sectorMomentumScore,
+    riskTags,
+    logic: opportunityLogic(stock, signal, sectorMomentumScore, relativeVolume, catalyst)
+  };
+}
+
+function sectorMomentumProxy(sector) {
+  if (/AI 半导体|AI 软件|AI 服务器|云计算|加密资产|大型科技|动量科技/.test(sector)) return 78;
+  if (/医疗|公用|防御/.test(sector)) return 42;
+  return 58;
+}
+
+function newsCatalystBias(text, symbol) {
+  const scoped = text.includes(symbol.toLowerCase()) ? text : text.slice(0, 1200);
+  if (/(earnings beat|guidance raise|analyst upgrade|partnership|\bai demand\b|government contract|price target|raises|growth|demand)/i.test(scoped)) return "bullish";
+  if (/(downgrade|lawsuit|weak demand|war|delay|investigation|miss|cut|fallout)/i.test(scoped)) return "bearish";
+  return "neutral";
+}
+
+function vwapTrendProxy(stock, context, sectorMomentumScore) {
+  const gap = Number(stock.preMarketChangePercent ?? stock.preMarketChange ?? 0);
+  const regularChange = Number(stock.regularMarketChangePercent ?? gap);
+  const qqq = (context.indices || []).find((item) => item.id === "QQQ" || item.id === "NDX")?.change || 0;
+  if (gap > 0.8 && regularChange >= -0.5 && sectorMomentumScore >= 65 && qqq >= -0.4) return "BULLISH ABOVE VWAP";
+  if (gap < -1 || regularChange < -1.5 || sectorMomentumScore < 45) return "WEAK BELOW VWAP";
+  return "VWAP WATCH";
+}
+
+function classifyOpportunitySignal({ score, gap, relativeVolume, sectorMomentumScore, catalyst, risk }) {
+  if (score < 50) return "LOW QUALITY / IGNORE";
+  if (gap < -1.5 || catalyst === "bearish" || (sectorMomentumScore < 45 && gap < 0)) return "PUT / HEDGE WATCH";
+  if (score > 80 && relativeVolume > 1.5 && sectorMomentumScore >= 65 && catalyst !== "bearish" && risk.mode === "Risk-On") return "HIGH MOMENTUM LONG";
+  if (score >= 65) return "OPENING BREAKOUT WATCH";
+  return "LOW QUALITY / IGNORE";
+}
+
+function openingConfirmationState({ relativeVolume, gap, vwapBias, sectorMomentumScore, risk, indices }) {
+  const spy = (indices || []).find((item) => item.id === "SPY")?.change || 0;
+  const qqq = (indices || []).find((item) => item.id === "QQQ" || item.id === "NDX")?.change || 0;
+  if (gap > 1.5 && vwapBias === "WEAK BELOW VWAP") return "FAILED OPEN";
+  if (relativeVolume > 1.5 && Math.abs(gap) > 1 && sectorMomentumScore >= 60 && (spy >= -0.3 || qqq >= -0.3) && risk.mode !== "Risk-Off") return "CONFIRMED";
+  return "EARLY ONLY";
+}
+
+function opportunityRiskTags({ gap, relativeVolume, mentionCount, score, openingConfirmation, signal }) {
+  const tags = [];
+  if (gap >= 3) tags.push("Chase Risk", "Gap Exhaustion");
+  if (mentionCount >= 10) tags.push("Crowded Risk");
+  if (relativeVolume < 1) tags.push("Weak Volume");
+  if (score >= 75) tags.push("Strong Trend");
+  if (openingConfirmation === "EARLY ONLY") tags.push("Early Only");
+  if (signal.includes("HEDGE")) tags.push("Put Watch");
+  return tags.length ? tags.slice(0, 4) : ["WATCH"];
+}
+
+function opportunityLogic(stock, signal, sectorMomentumScore, relativeVolume, catalyst) {
+  if (signal === "HIGH MOMENTUM LONG") return `${stock.sector}主线强化，量能与板块同步，优先等待 VWAP 回踩延续。`;
+  if (signal === "OPENING BREAKOUT WATCH") return `${stock.sector}有催化和动量，但需确认开盘相对成交量。`;
+  if (signal === "PUT / HEDGE WATCH") return `${stock.sector}或价格结构偏弱，短线更适合观察对冲方向。`;
+  if (relativeVolume < 1) return "量能不足，暂不追逐盘前异动。";
+  if (catalyst === "bullish" || sectorMomentumScore >= 65) return "存在主题热度，但交易质量仍需开盘确认。";
+  return "缺少明确动量、量能或催化共振。";
+}
+
+function buildPremarketTradePlan(opportunities, flows, risk, options) {
+  const leader = flows[0]?.sector || "AI / 高 beta";
+  const topLongs = opportunities.filter((item) => ["HIGH MOMENTUM LONG", "OPENING BREAKOUT WATCH"].includes(item.signal)).slice(0, 3);
+  const hedges = opportunities.filter((item) => item.signal === "PUT / HEDGE WATCH").slice(0, 2);
+  return {
+    title: `${leader}仍是盘前主线，${risk.mode} 下优先等开盘确认。`,
+    body: risk.mode === "Risk-Off"
+      ? "风险偏好转弱，降低高 beta 追涨，优先观察放量失败和对冲机会。"
+      : "市场仍可寻找顺势机会，但无量高开不追，优先交易回踩 VWAP 后重新转强的标的。",
+    focus: topLongs.length ? topLongs.map((item) => `${item.symbol}：${item.openingConfirmation} / ${item.signal}`) : ["等待相对成交量和板块确认"],
+    avoid: [
+      "无量高开",
+      "低成交量 breakout",
+      hedges.length ? `${hedges.map((item) => item.symbol).join(" / ")} 追多` : "弱势防御板块追多"
+    ]
+  };
+}
+
+function buildScannerStatus(opportunities, flows, risk) {
+  const rvLeader = [...opportunities].sort((a, b) => b.relativeVolume - a.relativeVolume)[0];
+  const strongest = flows[0];
+  const momentum = opportunities.filter((item) => item.score >= 65).length;
+  const confirmed = opportunities.filter((item) => item.openingConfirmation === "CONFIRMED").length;
+  return {
+    rvLeader: rvLeader ? `Relative Volume Leader ${rvLeader.symbol} ${rvLeader.relativeVolume.toFixed(2)}x` : "Relative Volume Leader --",
+    strongestSector: strongest ? `Strongest Sector ${strongest.sector}` : "Strongest Sector --",
+    riskAppetite: `Risk Appetite ${risk.mode}`,
+    premarketMomentum: `Premarket Momentum ${momentum} WATCH`,
+    openingBias: confirmed ? `Opening Bias ${confirmed} CONFIRMED` : "Opening Bias EARLY ONLY"
+  };
 }
 
 function marketSummary(indices) {
@@ -773,6 +937,11 @@ function render(dashboard) {
   text("#tapeReason", dashboard.tape.reason);
   text("#starSummary", dashboard.tape.title);
   text("#marketSummary", dashboard.marketSummary);
+  text("#rvLeader", dashboard.scannerStatus.rvLeader);
+  text("#strongestSector", dashboard.scannerStatus.strongestSector);
+  text("#riskAppetite", dashboard.scannerStatus.riskAppetite);
+  text("#premarketMomentum", dashboard.scannerStatus.premarketMomentum);
+  text("#openingBias", dashboard.scannerStatus.openingBias);
   document.querySelector("#gaugeFill").style.width = `${dashboard.risk.score}%`;
   document.querySelector("#statusDot").style.color = dashboard.sourceMode.startsWith("Live") ? "var(--green)" : "var(--gold)";
   document.querySelector("#statusDot").style.background = dashboard.sourceMode.startsWith("Live") ? "var(--green)" : "var(--gold)";
@@ -784,6 +953,8 @@ function render(dashboard) {
   renderMacro(dashboard.macro);
   renderRetail(dashboard.retail);
   renderOptions(dashboard.options);
+  renderOpportunities(dashboard.opportunities);
+  renderTradePlan(dashboard.tradePlan);
   renderMetricGrid("#sentimentGrid", dashboard.sentiment, "sentiment");
   renderMoverTable(dashboard.movers);
   renderFlows(dashboard.flows);
@@ -800,6 +971,8 @@ function renderModuleStatus(statusMap) {
     flow: ["#flowModuleMeta"],
     mover: ["#moverModuleMeta"],
     star: ["#starModuleMeta"],
+    opportunity: ["#opportunityModuleMeta"],
+    tradePlan: ["#tradePlanModuleMeta"],
     news: ["#newsModuleMeta"],
     macro: ["#macroModuleMeta"],
     retail: ["#retailModuleMeta"],
@@ -922,6 +1095,47 @@ function renderOptions(items) {
   `).join(""));
 }
 
+function renderOpportunities(items) {
+  html("#opportunityGrid", items.map((item) => `
+    <article class="opportunity-card ${signalClass(item.signal)}">
+      <div class="opportunity-head">
+        <div>
+          <strong>${escapeHtml(item.symbol)}</strong>
+          <span>${escapeHtml(item.sector)}</span>
+        </div>
+        <b>${item.score}</b>
+      </div>
+      <div class="signal-pill">${escapeHtml(item.signal)}</div>
+      <p>${escapeHtml(item.logic)}</p>
+      <div class="opportunity-meta">
+        <span>PROXY</span>
+        <span>RVOL ${Number(item.relativeVolume || 0).toFixed(2)}x</span>
+        <span>${escapeHtml(item.vwapBias)}</span>
+        <span>${escapeHtml(item.openingConfirmation)}</span>
+      </div>
+      <div class="risk-tags">
+        ${item.riskTags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}
+      </div>
+    </article>
+  `).join(""));
+}
+
+function renderTradePlan(plan) {
+  text("#tradePlanTitle", plan.title);
+  text("#tradePlanBody", plan.body);
+  html("#tradePlanList", `
+    <div><span>优先关注</span>${plan.focus.map((item) => `<p>${escapeHtml(item)}</p>`).join("")}</div>
+    <div><span>避免</span>${plan.avoid.map((item) => `<p>${escapeHtml(item)}</p>`).join("")}</div>
+  `);
+}
+
+function signalClass(signal) {
+  if (signal === "HIGH MOMENTUM LONG") return "signal-long";
+  if (signal === "OPENING BREAKOUT WATCH") return "signal-watch";
+  if (signal === "PUT / HEDGE WATCH") return "signal-hedge";
+  return "signal-ignore";
+}
+
 function renderMoverTable(items) {
   html("#moverTable", `
     <div class="table-row table-head"><span>股票</span><span>涨跌幅</span><span>板块</span><span>Benzinga 异动原因</span></div>
@@ -966,8 +1180,8 @@ function renderNews(items) {
       <details>
         <summary>
           <span class="news-head"><span class="tag">${escapeHtml(item.category)}</span><span class="${item.bias === "利空" ? "down" : item.bias === "利好" ? "up" : "flat"}">${escapeHtml(item.bias)} · ${escapeHtml(item.time)}</span></span>
-          <strong>${escapeHtml(item.title)}</strong>
-          ${item.showOriginal ? `<em class="news-original">${escapeHtml(item.originalTitle)}</em>` : ""}
+          <strong class="news-title-cn">${escapeHtml(item.title)}</strong>
+          ${item.showOriginal ? `<em class="news-title-en">${escapeHtml(item.originalTitle)}</em>` : ""}
         </summary>
         <p>${escapeHtml(item.summary)}</p>
       </details>
