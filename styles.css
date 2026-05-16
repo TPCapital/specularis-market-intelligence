@@ -873,15 +873,6 @@ body[data-risk="neutral"] .strategy-panel h2 {
   border-top: 1px solid var(--line);
 }
 
-.empty-state {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 18px;
-  color: var(--muted);
-  background: rgba(255, 255, 255, 0.035);
-  font-size: 14px;
-}
-
 .table-row:not(.table-head):hover,
 .star-card:hover,
 .flow-card:hover,
