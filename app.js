@@ -43,7 +43,11 @@ const symbolMeta = {
   UNH: ["UnitedHealth", "医疗"],
   DASH: ["DoorDash", "消费科技"],
   NFLX: ["Netflix", "消费科技"],
-  CSCO: ["Cisco", "AI 网络"]
+  CSCO: ["Cisco", "AI 网络"],
+  SMR: ["NuScale Power", "核能"],
+  OKLO: ["Oklo", "核能"],
+  NNE: ["Nano Nuclear", "核能"],
+  UEC: ["Uranium Energy", "铀矿"]
 };
 
 const fallback = {
@@ -436,9 +440,14 @@ function fallbackSource(key, data) {
 }
 
 function buildDashboard(sources) {
-  const quoteMap = new Map(sources.yahoo.data.quotes.map((item) => [item.symbol, item]));
+  const benzingaData = sources.benzinga?.data || {};
+  const yahooQuotes = sources.yahoo?.data?.quotes || fallback.yahoo.quotes;
+  const quoteMap = new Map(yahooQuotes.map((item) => [item.symbol, item]));
   const flows = normalizeSectors(sources.finviz.data);
-  const movers = normalizeMovers(sources.benzinga.data.movers, quoteMap);
+  const moversRaw = Array.isArray(benzingaData.movers) && benzingaData.movers.length
+    ? benzingaData.movers
+    : deriveMoversFromQuotes(yahooQuotes);
+  const movers = normalizeMovers(moversRaw, quoteMap, yahooQuotes);
   const stars = normalizeStars(sources.tradingView.data, quoteMap);
   const retail = sources.reddit.data;
   const options = sources.unusualWhales.data;
@@ -591,8 +600,12 @@ function normalizeSectors(items) {
     .slice(0, 6);
 }
 
-function normalizeMovers(items, quoteMap) {
-  return items
+function normalizeMovers(items = [], quoteMap, quotes = []) {
+  const sourceItems = Array.isArray(items) && items.length
+    ? items
+    : deriveMoversFromQuotes(quotes?.length ? quotes : fallback.yahoo.quotes);
+  return sourceItems
+    .filter((item) => item && item.symbol)
     .map((item) => {
       const live = quoteMap.get(item.symbol);
       const [name, sectorName] = symbolMeta[item.symbol] || [item.name || item.symbol, item.sector || "其他"];
@@ -605,6 +618,24 @@ function normalizeMovers(items, quoteMap) {
         reason: item.reason || item.summary || "Benzinga 异动新闻待确认。",
         bias: item.bias || (change >= 0 ? "利好" : "利空"),
         durability: durability(live, change)
+      };
+    })
+    .sort((a, b) => Math.abs(b.change) - Math.abs(a.change))
+    .slice(0, 10);
+}
+
+function deriveMoversFromQuotes(quotes = []) {
+  return [...quotes]
+    .filter((item) => item?.symbol)
+    .map((item) => {
+      const change = Number(item.preMarketChange ?? item.regularMarketChangePercent ?? 0);
+      return {
+        symbol: item.symbol,
+        name: item.name,
+        sector: item.sector,
+        change,
+        reason: "价格异动进入盘前扫描，等待开盘量能确认。",
+        bias: change >= 0 ? "利好" : "利空"
       };
     })
     .sort((a, b) => Math.abs(b.change) - Math.abs(a.change))
@@ -632,14 +663,21 @@ function normalizeStars(items, quoteMap) {
 
 function normalizeNews(items = []) {
   const cleaned = items
-    .filter((item) => item?.title && item?.originalTitle)
+    .map((item) => normalizeNewsItem(item))
+    .filter(Boolean)
     .filter((item) => !String(item.originalTitle).toLowerCase().includes("market update"))
+    .filter((item) => isTradableNews(item))
     .map((item, index) => ({
       ticker: item.ticker || "MACRO",
       sector: item.sector || "宏观",
       category: item.category || item.newsType || "新闻",
-      title: item.title,
-      summary: item.summary || "事件进入盘前定价，等待价格确认。",
+      title: makeReadableChineseNewsTitle({
+        ticker: item.ticker,
+        type: item.newsType || item.category,
+        originalTitle: item.originalTitle,
+        bias: item.bias
+      }),
+      summary: item.summary || readableNewsSummary(item),
       originalTitle: item.originalTitle,
       bias: normalizeNewsBias(item.bias),
       time: item.time || item.publishedAt || `0${7 - Math.min(index, 5)}:${(50 - index * 7).toString().padStart(2, "0")}`
@@ -654,6 +692,99 @@ function normalizeNews(items = []) {
     bias: item.bias === "利空" ? "BEARISH" : "BULLISH",
     time: item.time
   }));
+}
+
+function normalizeNewsItem(item = {}) {
+  const originalTitle = item.originalTitle || item.title || "";
+  if (!originalTitle) return null;
+  const ticker = item.ticker || extractTickerFromText(`${originalTitle} ${item.summary || ""}`);
+  const type = item.newsType || item.category || detectNewsTypeFromText(originalTitle);
+  const sector = ticker ? symbolMeta[ticker]?.[1] || item.sector || "美股" : item.sector || newsTypeSector(type);
+  return {
+    ...item,
+    ticker: ticker || "MACRO",
+    sector,
+    newsType: type,
+    originalTitle,
+    bias: normalizeNewsBias(item.bias || classifyNewsBiasFromText(originalTitle))
+  };
+}
+
+function makeReadableChineseNewsTitle({ ticker, type, originalTitle, bias }) {
+  const symbol = ticker && ticker !== "MACRO" ? ticker : "MACRO";
+  const lower = String(originalTitle || "").toLowerCase();
+  let event = "事件催化进入盘前定价";
+  if (/price target|raises|raise|upgrade/.test(lower)) event = "目标价上调强化买盘预期";
+  else if (/downgrade|cut/.test(lower)) event = "评级下修压制风险偏好";
+  else if (/\bai\b|nvidia|amd|data center|chip|gpu|server/.test(lower)) event = "AI 需求逻辑继续强化";
+  else if (/earnings|reports|results|revenue/.test(lower)) event = "财报或业绩结果进入定价";
+  else if (/trial|drug|weight loss|eli lilly|lilly/.test(lower)) event = "医药试验结果引发波动";
+  else if (/fed|treasury|inflation|rates|yield/.test(lower)) event = "利率与通胀预期影响市场";
+  else if (/futures|nasdaq|s&p 500|dow jones|dow/.test(lower)) event = "股指期货维持高位震荡";
+  else if (/ipo|openai|spacex|anthropic/.test(lower)) event = "AI IPO 预期升温";
+  else if (/uranium|power|nuclear|nuscale|oklo|nano nuclear/.test(lower)) event = "核能主题波动升温";
+  return `${symbol}｜${event}`;
+}
+
+function readableNewsSummary(item) {
+  const bias = normalizeNewsBias(item.bias);
+  const target = item.ticker && item.ticker !== "MACRO" ? `${item.ticker} 与${item.sector || "相关板块"}` : item.sector || "宏观资产";
+  if (bias === "BULLISH") return `${target}出现正向催化，仍需开盘量价确认。`;
+  if (bias === "BEARISH") return `${target}出现负面催化，需观察风险偏好是否降温。`;
+  return `${target}进入盘前定价，方向仍需开盘确认。`;
+}
+
+function isTradableNews(item) {
+  const title = String(item.originalTitle || "").toLowerCase();
+  if (/retirement|social security|dividend income|roth ira|personal finance/.test(title)) return false;
+  if (item.ticker && item.ticker !== "MACRO") return true;
+  return /(fed|cpi|treasury|nasdaq|s&p|dow|ai|ipo|crypto|bitcoin|oil|gold|nuclear|uranium|rates|inflation)/.test(title);
+}
+
+function extractTickerFromText(text = "") {
+  const upper = text.toUpperCase();
+  const aliases = [
+    ["NUSCALE POWER", "SMR"],
+    ["OKLO", "OKLO"],
+    ["URANIUM ENERGY", "UEC"],
+    ["NANO NUCLEAR", "NNE"],
+    ["ADVANCED MICRO DEVICES", "AMD"],
+    ["NVIDIA", "NVDA"],
+    ["ELI LILLY", "LLY"]
+  ];
+  for (const [name, symbol] of aliases) {
+    if (upper.includes(name)) return symbol;
+  }
+  return Object.keys(symbolMeta).find((symbol) => new RegExp(`\\b${symbol}\\b`).test(upper)) || "";
+}
+
+function detectNewsTypeFromText(title = "") {
+  const lower = title.toLowerCase();
+  if (/price target|raises|raise|upgrade/.test(lower)) return "analyst upgrade";
+  if (/downgrade|cut/.test(lower)) return "downgrade";
+  if (/\bai\b|nvidia|amd|data center|chip|gpu|server/.test(lower)) return "AI demand";
+  if (/trial|drug|weight loss|eli lilly|lilly/.test(lower)) return "FDA";
+  if (/fed|treasury|inflation|rates|yield/.test(lower)) return "macro";
+  if (/futures|nasdaq|s&p 500|dow jones|dow/.test(lower)) return "macro";
+  if (/ipo|openai|spacex|anthropic/.test(lower)) return "IPO";
+  if (/uranium|power|nuclear|nuscale|oklo|nano nuclear/.test(lower)) return "nuclear";
+  if (/earnings|reports|results|revenue/.test(lower)) return "earnings";
+  return "event";
+}
+
+function newsTypeSector(type = "") {
+  if (/AI|semiconductor/.test(type)) return "AI 半导体";
+  if (/FDA/.test(type)) return "医疗";
+  if (/nuclear/.test(type)) return "核能";
+  if (/IPO/.test(type)) return "AI IPO";
+  return "宏观";
+}
+
+function classifyNewsBiasFromText(title = "") {
+  const lower = title.toLowerCase();
+  if (/downgrade|cut|lawsuit|investigation|miss|weak|fallout/.test(lower)) return "BEARISH";
+  if (/raise|raises|upgrade|price target|beat|ai|growth|demand/.test(lower)) return "BULLISH";
+  return "NEUTRAL";
 }
 
 function normalizeNewsBias(bias = "NEUTRAL") {
@@ -1127,6 +1258,10 @@ function signalClass(signal) {
 }
 
 function renderMoverTable(items) {
+  if (!items?.length) {
+    html("#moverTable", `<div class="empty-state">暂无有效异动数据，等待下一次快照刷新。</div>`);
+    return;
+  }
   html("#moverTable", `
     <div class="table-row table-head"><span>股票</span><span>涨跌幅</span><span>板块</span><span>Benzinga 异动原因</span></div>
     ${items.map((item) => `

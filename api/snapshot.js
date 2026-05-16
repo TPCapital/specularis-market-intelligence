@@ -45,7 +45,11 @@ const symbolMeta = {
   JPM: ["JPMorgan", "金融"],
   LLY: ["Eli Lilly", "医疗"],
   DASH: ["DoorDash", "消费科技"],
-  CSCO: ["Cisco", "AI 网络"]
+  CSCO: ["Cisco", "AI 网络"],
+  SMR: ["NuScale Power", "核能"],
+  OKLO: ["Oklo", "核能"],
+  NNE: ["Nano Nuclear", "核能"],
+  UEC: ["Uranium Energy", "铀矿"]
 };
 
 const snapshotIndices = [
@@ -93,7 +97,7 @@ const snapshotNews = [
     category: "主线",
     newsType: "semiconductor",
     bias: "BULLISH",
-    title: "AMD｜AI GPU 追赶逻辑进入盘前定价",
+    title: "AMD｜AI 芯片追赶逻辑进入盘前定价",
     summary: "资金继续评估 AMD 在 AI 加速器链条中的弹性。",
     originalTitle: "Advanced Micro Devices draws attention as an AI GPU beneficiary",
     originalSummary: "Snapshot catalyst retained for terminal continuity.",
@@ -366,6 +370,7 @@ function analyzeNews(news) {
   if (!news?.title || news.title.toLowerCase().includes("market update") || news.title.length < 15 || String(news.summary || "").length < 10) return null;
   const ticker = extractTicker(news);
   const type = detectNewsType(news);
+  if (!ticker && !isMarketRelevantNews(news, type)) return null;
   const bias = classifyNewsBias(`${news.title} ${news.summary}`, type);
   const sector = ticker ? symbolMeta[ticker]?.[1] || "美股" : typeToSector(type);
   return {
@@ -374,7 +379,7 @@ function analyzeNews(news) {
     category: typeLabel(type),
     newsType: type,
     bias,
-    title: rewriteNewsTitle(ticker, type, news.title),
+    title: makeReadableChineseNewsTitle({ ticker, type, originalTitle: news.title, bias }),
     summary: rewriteNewsSummary(ticker, type, bias),
     originalTitle: news.title,
     originalSummary: news.summary,
@@ -395,7 +400,11 @@ function extractTicker(news) {
     ["Apple", "AAPL"],
     ["Coinbase", "COIN"],
     ["MicroStrategy", "MSTR"],
-    ["Broadcom", "AVGO"]
+    ["Broadcom", "AVGO"],
+    ["NuScale Power", "SMR"],
+    ["Oklo", "OKLO"],
+    ["Uranium Energy", "UEC"],
+    ["Nano Nuclear", "NNE"]
   ];
   for (const [name, symbol] of aliases) {
     if (text.includes(name.toUpperCase())) return symbol;
@@ -421,7 +430,16 @@ function detectNewsType(news) {
   if (/government|contract|defense/.test(lower)) return "government";
   if (/fed|federal reserve|yield|rates/.test(lower)) return "macro";
   if (/inflation|cpi|pce/.test(lower)) return "inflation";
+  if (/ipo|openai|spacex|anthropic/.test(lower)) return "IPO";
+  if (/uranium|power|nuclear|nuscale|oklo|nano nuclear/.test(lower)) return "nuclear";
   return "macro";
+}
+
+function isMarketRelevantNews(news, type) {
+  const lower = `${news.title || ""} ${news.summary || ""}`.toLowerCase();
+  if (/retirement|social security|dividend income|roth ira|personal finance/.test(lower)) return false;
+  return /(fed|cpi|treasury|nasdaq|s&p|dow|ai|ipo|crypto|bitcoin|oil|gold|nuclear|uranium|rates|inflation)/.test(lower)
+    || ["macro", "inflation", "crypto", "war", "IPO", "nuclear"].includes(type);
 }
 
 function classifyNewsBias(text, type) {
@@ -431,27 +449,20 @@ function classifyNewsBias(text, type) {
   return "NEUTRAL";
 }
 
-function rewriteNewsTitle(ticker, type) {
-  const prefix = ticker ? `${ticker}｜` : "";
-  const map = {
-    "analyst upgrade": "卖方评级与目标价上修",
-    downgrade: "评级下修压制风险偏好",
-    "earnings beat": "业绩超预期强化趋势交易",
-    "earnings miss": "业绩低于预期引发抛压",
-    "AI demand": "AI 需求逻辑继续强化",
-    semiconductor: "半导体资金主线延续",
-    cloud: "云计算支出预期升温",
-    crypto: "加密资产高 beta 联动增强",
-    FDA: "医药监管催化进入定价",
-    lawsuit: "法律风险压制估值情绪",
-    war: "地缘风险抬升避险需求",
-    government: "政府订单强化收入可见度",
-    macro: "宏观变量影响风险资产",
-    inflation: "通胀预期牵动利率定价",
-    "guidance raise": "指引上修强化盈利预期",
-    "guidance cut": "指引下修触发估值压力"
-  };
-  return `${prefix}${map[type] || "事件催化进入盘前定价"}`;
+function makeReadableChineseNewsTitle({ ticker, type, originalTitle }) {
+  const symbol = ticker || "MACRO";
+  const lower = String(originalTitle || "").toLowerCase();
+  let event = "事件催化进入盘前定价";
+  if (/price target|raises|raise|upgrade/.test(lower)) event = "目标价上调强化买盘预期";
+  else if (/downgrade|cut/.test(lower)) event = "评级下修压制风险偏好";
+  else if (/\bai\b|nvidia|amd|data center|chip|gpu|server/.test(lower)) event = "AI 需求逻辑继续强化";
+  else if (/earnings|reports|results|revenue/.test(lower)) event = "财报或业绩结果进入定价";
+  else if (/trial|drug|weight loss|eli lilly|lilly/.test(lower)) event = "医药试验结果引发波动";
+  else if (/fed|treasury|inflation|rates|yield/.test(lower)) event = "利率与通胀预期影响市场";
+  else if (/futures|nasdaq|s&p 500|dow jones|dow/.test(lower)) event = "股指期货维持高位震荡";
+  else if (/ipo|openai|spacex|anthropic/.test(lower)) event = "AI IPO 预期升温";
+  else if (/uranium|power|nuclear|nuscale|oklo|nano nuclear/.test(lower)) event = "核能主题波动升温";
+  return `${symbol}｜${event}`;
 }
 
 function rewriteNewsSummary(ticker, type, bias) {
@@ -498,17 +509,26 @@ function deriveSectors(quotes) {
 }
 
 function deriveMovers(quotes, news = []) {
+  const sourceQuotes = (quotes && quotes.length ? quotes : snapshotQuotes)
+    .filter((item) => Number.isFinite(Number(item.preMarketChange ?? item.regularMarketChangePercent)));
   const tickerNews = new Set(news.map((item) => item.ticker).filter(Boolean));
-  return [...(quotes || [])].sort((a, b) => Math.abs(b.preMarketChange) - Math.abs(a.preMarketChange)).slice(0, 10).map((item) => ({
+  return [...sourceQuotes].sort((a, b) => {
+    const aChange = Number(a.preMarketChange ?? a.regularMarketChangePercent ?? 0);
+    const bChange = Number(b.preMarketChange ?? b.regularMarketChangePercent ?? 0);
+    return Math.abs(bChange) - Math.abs(aChange);
+  }).slice(0, 10).map((item) => {
+    const change = Number(item.preMarketChange ?? item.regularMarketChangePercent ?? 0);
+    return {
     symbol: item.symbol,
     name: item.name,
     sector: item.sector,
-    change: item.preMarketChange,
+    change,
     reason: tickerNews.has(item.symbol)
       ? "盘前价格异动与新闻催化同步出现。"
-      : "价格动量进入盘前扫描，等待开盘量能确认。",
-    bias: item.preMarketChange >= 0 ? "利好" : "利空"
-  }));
+      : "价格异动进入盘前扫描，等待开盘量能确认。",
+    bias: change >= 0 ? "利好" : "利空"
+  };
+  });
 }
 
 function deriveOptionsProxy(quotes, context = {}) {
@@ -602,7 +622,7 @@ export async function buildSnapshot(req) {
   const riskRegime = calculateRiskRegime(yahoo.data?.indices || snapshotIndices);
 
   const finviz = keepLastGood("finviz", source("finviz", sectorData, "proxy", generatedAt, "Sector Heat Proxy"));
-  const benzinga = keepLastGood("benzinga", source("benzinga", { movers: moverData, news }, news.length ? "live" : "proxy", generatedAt, "News Catalyst Proxy"));
+  const benzinga = keepLastGood("benzinga", source("benzinga", { movers: moverData.length ? moverData : deriveMovers(snapshotQuotes, news), news }, "proxy", generatedAt, "News Catalyst Proxy"));
   const unusualWhales = keepLastGood("unusualWhales", source("unusualWhales", optionProxyData, "proxy", generatedAt, "Options Flow Proxy"));
   const xMacro = source("xMacro", [
     { source: "Macro Monitor", title: `${riskRegime.mode} 结构监控`, summary: riskRegime.mode === "Risk-On" ? "QQQ、VIX、DXY 与 TNX 组合支持科技风险偏好。" : "宏观变量仍需观察，避免无量追高。", tone: riskRegime.mode === "Risk-Off" ? "bearish" : "bullish" }
