@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildSnapshot } from "../api/snapshot.js";
+import finnhubHandler from "../api/finnhub.js";
+import twelveDataHandler from "../api/twelvedata.js";
 
 const root = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 const port = Number(process.env.PORT || 4173);
@@ -22,6 +24,24 @@ function sendJson(res, status, payload) {
     "Cache-Control": "no-store"
   });
   res.end(JSON.stringify(payload));
+}
+
+async function runVercelHandler(handler, req, res, url) {
+  const headers = {};
+  const vercelRes = {
+    setHeader(key, value) {
+      headers[key] = value;
+    },
+    status(code) {
+      this.statusCode = code;
+      return this;
+    },
+    send(body) {
+      res.writeHead(this.statusCode || 200, headers);
+      res.end(body);
+    }
+  };
+  await handler({ ...req, query: Object.fromEntries(url.searchParams.entries()) }, vercelRes);
 }
 
 async function fetchJson(url, options = {}) {
@@ -142,6 +162,14 @@ async function handleApi(req, res, url) {
         generatedAt: snapshot.generatedAt,
         sources: Object.fromEntries(Object.entries(snapshot.sources || {}).map(([key, value]) => [key, value.status]))
       });
+    }
+
+    if (url.pathname === "/api/finnhub") {
+      return runVercelHandler(finnhubHandler, req, res, url);
+    }
+
+    if (url.pathname === "/api/twelvedata") {
+      return runVercelHandler(twelveDataHandler, req, res, url);
     }
 
     if (url.pathname === "/api/yahoo") {
