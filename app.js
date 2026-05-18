@@ -3,6 +3,8 @@ const REFRESH_SECONDS = CONFIG.refreshSeconds || 90;
 const CACHE_PREFIX = "ai-us-equity-dashboard:";
 const FALLBACK_SNAPSHOT_LABEL = "快照数据（SNAPSHOT）";
 const CACHE_TRADABLE_MS = 15 * 60 * 1000;
+const STATUS_WEIGHT = { live: 1, delayed: 0.75, proxy: 0.35, cached: 0.25, snapshot: 0.1, unavailable: 0 };
+const SOURCE_WEIGHT = { finnhub: 0.24, twelveData: 0.22, relativeVolume: 0.2, earnings: 0.17, marketBreadth: 0.17 };
 
 const sourceCatalog = {
   finnhub: "Finnhub",
@@ -356,9 +358,27 @@ function isTradableQuality(dataQuality, updatedAt) {
 
 function isUsableForInference(item) {
   if (!item) return false;
-  if (item.isTradable) return true;
-  if (["snapshot", "cached", "proxy", "delayed", "live"].includes(normalizeDataQuality(item.dataQuality || item.status))) return true;
-  return false;
+  const q = normalizeDataQuality(item.dataQuality || item.status);
+  return Boolean(item.isTradable) && (q === "live" || q === "delayed");
+}
+
+function isCoreScoreSource(source) {
+  const q = normalizeDataQuality(source?.status);
+  return q === "live" || q === "delayed";
+}
+
+function computeDataReliability(sources) {
+  const detail = Object.entries(SOURCE_WEIGHT).map(([key, weight]) => {
+    const status = normalizeDataQuality(sources?.[key]?.status);
+    const score = (STATUS_WEIGHT[status] ?? 0) * weight;
+    return { key, status, weight, weighted: score };
+  });
+  const raw = detail.reduce((sum, item) => sum + item.weighted, 0);
+  return {
+    score: Math.round(raw * 100),
+    detail,
+    grade: raw >= 0.78 ? "HIGH" : raw >= 0.52 ? "MEDIUM" : "LOW"
+  };
 }
 
 function enrichSources(rawSources) {
@@ -442,11 +462,26 @@ function hasScoringData(items = []) {
 
 function buildDashboard(sources) {
   sources = enrichSources(sources);
+  const reliability = computeDataReliability(sources);
+  const scoreEligible = {
+    quotes: isCoreScoreSource(sources.yahoo),
+    sectors: isCoreScoreSource(sources.finviz),
+    news: isCoreScoreSource(sources.benzinga),
+    retail: isCoreScoreSource(sources.reddit),
+    options: isCoreScoreSource(sources.unusualWhales),
+    earnings: isCoreScoreSource(sources.earnings),
+    insider: isCoreScoreSource(sources.insider),
+    relativeVolume: isCoreScoreSource(sources.relativeVolume),
+    breadth: isCoreScoreSource(sources.marketBreadth)
+  };
   const benzingaData = sources.benzinga?.data || {};
   const yahooQuotes = normalizeQuotes(sources.yahoo?.data?.quotes || fallback.yahoo.quotes, sources.yahoo);
   const marketIndices = sanitizeIndices(sources.yahoo?.data?.indices, sources.yahoo);
+  const quotesForScoring = scoreEligible.quotes ? yahooQuotes : [];
+  const indicesForScoring = scoreEligible.quotes ? marketIndices : [];
   const quoteMap = new Map(yahooQuotes.map((item) => [item.symbol, item]));
   const flows = normalizeSectors(sources.finviz.data, sources.finviz);
+  const flowsForScoring = scoreEligible.sectors ? flows : [];
   const moversRaw = Array.isArray(benzingaData.movers) && benzingaData.movers.length
     ? benzingaData.movers
     : deriveMoversFromQuotes(yahooQuotes);
@@ -454,19 +489,32 @@ function buildDashboard(sources) {
   const stars = normalizeStars(sources.tradingView.data, quoteMap);
   const retail = sources.reddit.data;
   const newsItems = Array.isArray(sources.benzinga?.data?.news) ? sources.benzinga.data.news : [];
-  const newsForScoring = sources.benzinga?.isTradable ? newsItems : [];
+  const newsForScoring = scoreEligible.news ? newsItems : [];
   const options = normalizeOptions(sources.unusualWhales.data, sources.unusualWhales);
-  const risk = calculateRiskRegime(marketIndices, sources.sentiment, retail);
-  const opportunities = calculatePremarketOpportunities(yahooQuotes, {
-    flows,
+  const optionsForScoring = scoreEligible.options ? options : [];
+  const retailForScoring = scoreEligible.retail ? retail : {};
+  const risk = indicesForScoring.length
+    ? calculateRiskRegime(indicesForScoring, sources.sentiment, retailForScoring)
+    : {
+        score: null,
+        mode: "数据不足",
+        confidence: "低",
+        dataQuality: "unavailable",
+        tradable: false,
+        reason: "核心行情不是 LIVE / DELAYED。",
+        conclusion: "等待可交易数据恢复后再评估方向。",
+        inputs: [["SPY", "不可用"], ["QQQ", "不可用"], ["VIX", "不可用"], ["可信度", "低"]]
+      };
+  const opportunities = calculatePremarketOpportunities(quotesForScoring, {
+    flows: flowsForScoring,
     news: newsForScoring,
-    retail: sources.reddit?.isTradable ? retail : {},
+    retail: retailForScoring,
     risk,
-    indices: marketIndices,
-    options
+    indices: indicesForScoring,
+    options: optionsForScoring
   });
-  const tradePlan = buildPremarketTradePlan(opportunities, flows, risk, options);
-  const [strategy, strategyContext] = strategyFrom(risk, flows, retail, options);
+  const tradePlan = buildPremarketTradePlan(opportunities, flowsForScoring, risk, optionsForScoring);
+  const [strategy, strategyContext] = strategyFrom(risk, flowsForScoring, retailForScoring, optionsForScoring);
   const strategyBasis = statusGroup([sources.finviz, sources.unusualWhales, sources.benzinga]);
   const sourceBasis = statusGroup(Object.values(sources).filter((source) => source?.status));
 
@@ -519,7 +567,8 @@ function buildDashboard(sources) {
     risk,
     marketSummary: marketSummary(marketIndices),
     strategy,
-    strategyContext: `${dataBasisLabel(strategyBasis)}。${strategyContext}`,
+    strategyContext: `${dataBasisLabel(strategyBasis)}。数据可靠性 ${reliability.score} (${reliability.grade})。${strategyContext}`,
+    dataReliability: reliability,
     tape: tapeRead(movers, flows)
   };
 }
