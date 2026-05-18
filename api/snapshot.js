@@ -31,7 +31,11 @@ const sourceCatalog = {
   reddit: "WallStreetBets Reddit",
   finviz: "Sector Heat Proxy",
   unusualWhales: "Options Flow Proxy",
-  benzinga: "News Catalyst Proxy"
+  benzinga: "Benzinga API",
+  finnhubNews: "Finnhub News",
+  marketWatchNews: "MarketWatch RSS",
+  reutersNews: "Reuters RSS",
+  secNews: "SEC Filing Feed"
 };
 
 const symbolMeta = {
@@ -716,18 +720,107 @@ async function loadReddit() {
   };
 }
 
-async function loadYahooNews() {
-  const rss = await fetchText("https://feeds.finance.yahoo.com/rss/2.0/headline?s=SPY,QQQ,NVDA,AMD,AVGO,MSFT,TSLA,PLTR,COIN,MSTR,LLY,META,AAPL&region=US&lang=en-US");
-  const items = [...rss.matchAll(/<item>([\s\S]*?)<\/item>/g)].slice(0, 20).flatMap((match, index) => {
-    const block = match[1];
-    const title = stripXml(block.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>|<title>([\s\S]*?)<\/title>/)?.[1] || block.match(/<title>([\s\S]*?)<\/title>/)?.[1] || "");
-    const summary = stripXml(block.match(/<description><!\[CDATA\[([\s\S]*?)\]\]><\/description>|<description>([\s\S]*?)<\/description>/)?.[1] || "");
-    if (!title || title.toLowerCase().includes("market update") || title.length < 15 || summary.length < 10) return [];
-    const analyzed = analyzeNews({ title, summary, time: new Date(Date.now() - index * 8 * 60 * 1000).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }) });
-    return analyzed ? [analyzed] : [];
-  });
-  if (!items.length) throw new Error("Yahoo news empty");
-  return items.slice(0, 8);
+function classifyBenzingaError(error) {
+  const code = responseCodeFromError(error);
+  if (code === "401") return "benzinga_401";
+  if (code === "429") return "benzinga_rate_limit";
+  return code || "benzinga_error";
+}
+
+function parseRssItems(rss, provider = "RSS") {
+  const itemMatches = [...rss.matchAll(/<item>([\s\S]*?)<\/item>/gi)];
+  const entryMatches = [...rss.matchAll(/<entry>([\s\S]*?)<\/entry>/gi)];
+  const blocks = itemMatches.length ? itemMatches.map((m) => m[1]) : entryMatches.map((m) => m[1]);
+  return blocks.map((block) => {
+    const title =
+      stripXml(block.match(/<title><!\[CDATA\[([\s\S]*?)\]\]><\/title>/i)?.[1] || "") ||
+      stripXml(block.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || "");
+    const summary =
+      stripXml(block.match(/<description><!\[CDATA\[([\s\S]*?)\]\]><\/description>/i)?.[1] || "") ||
+      stripXml(block.match(/<description[^>]*>([\s\S]*?)<\/description>/i)?.[1] || "") ||
+      stripXml(block.match(/<summary[^>]*>([\s\S]*?)<\/summary>/i)?.[1] || "") ||
+      title;
+    const publishedRaw =
+      stripXml(block.match(/<pubDate>([\s\S]*?)<\/pubDate>/i)?.[1] || "") ||
+      stripXml(block.match(/<updated>([\s\S]*?)<\/updated>/i)?.[1] || "") ||
+      stripXml(block.match(/<published>([\s\S]*?)<\/published>/i)?.[1] || "");
+    const date = publishedRaw ? new Date(publishedRaw) : null;
+    return {
+      title,
+      summary,
+      provider,
+      time: Number.isFinite(date?.getTime())
+        ? date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })
+        : new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })
+    };
+  }).filter((item) => item.title);
+}
+
+function normalizeNewsFeed(rawItems = [], provider = "NEWS") {
+  return rawItems.slice(0, 40).flatMap((item, index) => {
+    const analyzed = analyzeNews({
+      title: item.title || item.headline || "",
+      summary: item.summary || item.description || item.title || item.headline || "",
+      relatedSymbol: item.relatedSymbol,
+      time: item.time || (item.datetime ? new Date(item.datetime * 1000).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }) : new Date(Date.now() - index * 5 * 60 * 1000).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }))
+    });
+    return analyzed ? [{ ...analyzed, provider }] : [];
+  }).slice(0, 12);
+}
+
+async function loadBenzingaNews() {
+  const key = process.env.BENZINGA_API_KEY;
+  if (!key) {
+    return { data: [], status: "unavailable", label: "Benzinga", error: "benzinga_key_missing" };
+  }
+  const url = `https://api.benzinga.com/api/v2/news?token=${encodeURIComponent(key)}&channels=markets,stocks,wiim,analyst,earnings&displayOutput=full&pagesize=20`;
+  try {
+    const payload = await fetchJsonWithDebug("BENZINGA_NEWS", url, { timeoutMs: 10000 });
+    const rows = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : [];
+    const normalized = normalizeNewsFeed(rows.map((row) => ({
+      title: row.title,
+      summary: row.teaser || row.body || row.title,
+      relatedSymbol: Array.isArray(row.stocks) && row.stocks.length ? String(row.stocks[0]).toUpperCase() : "",
+      time: row.updated ? new Date(row.updated).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }) : undefined
+    })), "Benzinga");
+    if (!normalized.length) return { data: [], status: "unavailable", label: "Benzinga", error: "no_realtime_news" };
+    return { data: normalized, status: "live", label: "Benzinga", error: null, fallback: false, confidence: "HIGH" };
+  } catch (error) {
+    return { data: [], status: "unavailable", label: "Benzinga", error: classifyBenzingaError(error), fallback: true, confidence: "LOW" };
+  }
+}
+
+async function loadMarketWatchNews() {
+  try {
+    const rss = await fetchText("https://feeds.content.dowjones.io/public/rss/mw_topstories");
+    const items = normalizeNewsFeed(parseRssItems(rss, "MarketWatch"), "MarketWatch");
+    if (!items.length) return { data: [], status: "unavailable", label: "MarketWatch", error: "no_realtime_news" };
+    return { data: items, status: "delayed", label: "MarketWatch", error: null, fallback: false, confidence: "MEDIUM" };
+  } catch (error) {
+    return { data: [], status: "unavailable", label: "MarketWatch", error: error.message || "no_realtime_news", fallback: true, confidence: "LOW" };
+  }
+}
+
+async function loadReutersNews() {
+  try {
+    const rss = await fetchText("https://www.reutersagency.com/feed/?best-topics=business-finance&post_type=best");
+    const items = normalizeNewsFeed(parseRssItems(rss, "Reuters"), "Reuters");
+    if (!items.length) return { data: [], status: "unavailable", label: "Reuters", error: "no_realtime_news" };
+    return { data: items, status: "delayed", label: "Reuters", error: null, fallback: false, confidence: "MEDIUM" };
+  } catch (error) {
+    return { data: [], status: "unavailable", label: "Reuters", error: error.message || "no_realtime_news", fallback: true, confidence: "LOW" };
+  }
+}
+
+async function loadSecFilingsNews() {
+  try {
+    const atom = await fetchText("https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=8-k&owner=include&count=40&output=atom");
+    const items = normalizeNewsFeed(parseRssItems(atom, "SEC Filing"), "SEC Filing");
+    if (!items.length) return { data: [], status: "unavailable", label: "SEC Filing", error: "no_realtime_news" };
+    return { data: items, status: "delayed", label: "SEC Filing", error: null, fallback: false, confidence: "MEDIUM" };
+  } catch (error) {
+    return { data: [], status: "unavailable", label: "SEC Filing", error: error.message || "no_realtime_news", fallback: true, confidence: "LOW" };
+  }
 }
 
 async function loadFinnhubCompanyNews(symbols) {
@@ -761,7 +854,7 @@ async function loadFinnhubMarketNews() {
 
 async function loadFinnhubNews(symbols) {
   const token = process.env.FINNHUB_API_KEY;
-  if (!token) return { data: [], status: "unavailable", label: "Finnhub News", error: "FINNHUB_API_KEY is not configured" };
+  if (!token) return { data: [], status: "unavailable", label: "Finnhub News", error: "missing_key" };
   const [companyNews, marketNews] = await Promise.all([
     loadFinnhubCompanyNews(symbols),
     loadFinnhubMarketNews()
@@ -769,20 +862,16 @@ async function loadFinnhubNews(symbols) {
   const rawItems = [...companyNews, ...marketNews]
     .sort((a, b) => Number(b.datetime || 0) - Number(a.datetime || 0))
     .slice(0, 40);
-  const items = rawItems.flatMap((item, index) => {
-    const title = item.headline || item.title || "";
-    const summary = item.summary || title;
-    const analyzed = analyzeNews({
-      title,
-      summary,
-      relatedSymbol: item.relatedSymbol,
-      time: item.datetime ? new Date(item.datetime * 1000).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }) : new Date(Date.now() - index * 5 * 60 * 1000).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false })
-    });
-    return analyzed ? [{ ...analyzed, url: item.url, provider: "Finnhub" }] : [];
-  });
+  const items = normalizeNewsFeed(rawItems.map((item) => ({
+    title: item.headline || item.title || "",
+    summary: item.summary || item.headline || item.title || "",
+    relatedSymbol: item.relatedSymbol,
+    datetime: item.datetime,
+    time: item.datetime ? new Date(item.datetime * 1000).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }) : undefined
+  })), "Finnhub");
   return items.length
-    ? { data: items.slice(0, 12), status: "delayed", label: "Finnhub News" }
-    : { data: [], status: "unavailable", label: "Finnhub News", error: "Finnhub returned no usable news" };
+    ? { data: items.slice(0, 12), status: "delayed", label: "Finnhub News", error: null, fallback: false, confidence: "MEDIUM" }
+    : { data: [], status: "unavailable", label: "Finnhub News", error: "no_realtime_news", fallback: true, confidence: "LOW" };
 }
 
 async function loadFinnhubInsider(symbols) {
@@ -1193,18 +1282,26 @@ export async function buildSnapshot(req) {
     twelveData: twelveData.data || [],
     tradingView: tradingView.data || []
   }), generatedAt, { indices: snapshotIndices, quotes: snapshotQuotes });
-  const [reddit, finnhubNews, yahooNews] = await Promise.all([
+  const [reddit, benzingaNews, finnhubNews, marketWatchNews, reutersNews, secNews] = await Promise.all([
     settleSource("reddit", loadReddit, generatedAt, { score: 58, tone: "中性", mentions: [["NVDA", 8], ["TSLA", 6], ["AMD", 5]], summary: "SNAPSHOT：散户关注集中在 AI 与高 beta。" }),
+    settleSource("benzinga", loadBenzingaNews, generatedAt, [], "Benzinga API"),
     settleSource("finnhubNews", () => loadFinnhubNews(symbols), generatedAt, [], "Finnhub News"),
-    settleSource("benzinga", loadYahooNews, generatedAt, snapshotNews, "Yahoo Finance News")
+    settleSource("marketWatchNews", loadMarketWatchNews, generatedAt, [], "MarketWatch RSS"),
+    settleSource("reutersNews", loadReutersNews, generatedAt, [], "Reuters RSS"),
+    settleSource("secNews", loadSecFilingsNews, generatedAt, [], "SEC Filing Feed")
   ]);
 
   const quotes = yahoo.data?.quotes?.length ? yahoo.data.quotes : snapshotQuotes;
-  const news = Array.isArray(finnhubNews.data) && finnhubNews.data.length
-    ? finnhubNews.data
-    : Array.isArray(yahooNews.data) && yahooNews.data.length
-      ? yahooNews.data
-      : snapshotNews;
+  const newsCandidates = [
+    { name: "benzinga", source: benzingaNews },
+    { name: "finnhub", source: finnhubNews },
+    { name: "marketwatch", source: marketWatchNews },
+    { name: "reuters", source: reutersNews },
+    { name: "sec", source: secNews }
+  ];
+  const selectedNewsSource = newsCandidates.find((item) => Array.isArray(item.source?.data) && item.source.data.length) || null;
+  const news = selectedNewsSource ? selectedNewsSource.source.data : [];
+  console.log("NEWS SOURCE USED:", selectedNewsSource ? selectedNewsSource.name : "none");
   const sectorData = deriveSectors(quotes);
   const moverData = deriveMovers(quotes, news);
   const relativeVolumeLayer = await settleSource("relativeVolume", () => buildRelativeVolumeLayer({
@@ -1246,7 +1343,13 @@ export async function buildSnapshot(req) {
   });
 
   const finviz = keepLastGood("finviz", source("finviz", sectorData, "proxy", generatedAt, "Sector Heat Proxy"));
-  const benzinga = keepLastGood("benzinga", source("benzinga", { movers: moverData.length ? moverData : deriveMovers(snapshotQuotes, news), news }, "proxy", generatedAt, "News Catalyst Proxy"));
+  const aggregateNewsStatus = selectedNewsSource ? selectedNewsSource.source.status || "delayed" : "unavailable";
+  const aggregateNewsConfidence = selectedNewsSource?.source?.confidence || (aggregateNewsStatus === "live" ? "HIGH" : aggregateNewsStatus === "delayed" ? "MEDIUM" : "LOW");
+  const benzinga = keepLastGood("benzinga", source("benzinga", { movers: moverData.length ? moverData : deriveMovers(snapshotQuotes, []), news }, aggregateNewsStatus, generatedAt, "News Aggregator", {
+    error: selectedNewsSource ? null : "no_realtime_news",
+    confidence: aggregateNewsConfidence,
+    fallback: !selectedNewsSource
+  }));
   const unusualWhales = keepLastGood("unusualWhales", source("unusualWhales", optionProxyData, "proxy", generatedAt, "Options Flow Proxy"));
   const xMacro = source("xMacro", [
     { source: "Macro Monitor", title: `${riskRegime.mode} 结构监控`, summary: riskRegime.mode === "Risk-On" ? "QQQ、VIX、DXY 与 TNX 组合支持科技风险偏好。" : "宏观变量仍需观察，避免无量追高。", tone: riskRegime.mode === "Risk-Off" ? "bearish" : "bullish" }
@@ -1271,8 +1374,10 @@ export async function buildSnapshot(req) {
         confidence: insiderLayer.status === "delayed" || earningsLayer.status === "delayed" ? "中" : "低"
       },
       newsCatalyst: {
-        topSource: Array.isArray(finnhubNews.data) && finnhubNews.data.length ? "Finnhub" : Array.isArray(yahooNews.data) && yahooNews.data.length ? "Yahoo RSS" : "Snapshot",
-        total: news.length
+        topSource: selectedNewsSource ? selectedNewsSource.name : "none",
+        total: news.length,
+        status: selectedNewsSource ? (selectedNewsSource.source.status || "delayed") : "unavailable",
+        error: selectedNewsSource ? null : "no_realtime_news"
       },
       tradeSignals: signalEngine,
       premarketScanner
@@ -1289,6 +1394,10 @@ export async function buildSnapshot(req) {
         yahoo,
         reddit,
         tradingView,
+        finnhubNews,
+        marketWatchNews,
+        reutersNews,
+        secNews,
         finnhubInsider: insider,
         finnhubEarnings: earnings,
         xMacro,
@@ -1342,7 +1451,11 @@ export default async function handler(req, res) {
         xMacro: fallbackSource("xMacro", []),
         finviz: fallbackSource("finviz", deriveSectors(snapshotQuotes)),
         unusualWhales: fallbackSource("unusualWhales", deriveOptionsProxy(snapshotQuotes, { sectors: deriveSectors(snapshotQuotes), reddit: {}, news: [] })),
-        benzinga: fallbackSource("benzinga", { movers: deriveMovers(snapshotQuotes, snapshotNews), news: snapshotNews })
+        benzinga: { ...fallbackSource("benzinga", { movers: deriveMovers(snapshotQuotes, []), news: [] }), status: "unavailable", dataQuality: "unavailable", error: "no_realtime_news" },
+        finnhubNews: { ...fallbackSource("finnhubNews", []), status: "unavailable", dataQuality: "unavailable", error: "no_realtime_news" },
+        marketWatchNews: { ...fallbackSource("marketWatchNews", []), status: "unavailable", dataQuality: "unavailable", error: "no_realtime_news" },
+        reutersNews: { ...fallbackSource("reutersNews", []), status: "unavailable", dataQuality: "unavailable", error: "no_realtime_news" },
+        secNews: { ...fallbackSource("secNews", []), status: "unavailable", dataQuality: "unavailable", error: "no_realtime_news" }
       }
     });
   }
