@@ -6,6 +6,8 @@ window.DASHBOARD_CONFIG = {
   // use one source to synthesize another source's content.
   endpoints: {
     snapshot: "/api/snapshot",
+    finnhub: "/api/finnhub",
+    twelvedata: "/api/twelvedata",
     yahoo: "/api/yahoo",
     reddit: "/api/reddit",
     xMacro: "/api/x-macro",

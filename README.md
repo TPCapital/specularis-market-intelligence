@@ -8,9 +8,9 @@
 - `vercel.json` 当前不配置定时任务，适配 Vercel Hobby 免费版；刷新主要由页面请求触发。
 - `/api/snapshot` 使用 `no-store` 响应头，避免 Vercel 或浏览器复用旧快照。
 - Dashboard 统一区分 `LIVE`、`DELAYED`、`PROXY`、`CACHED`、`SNAPSHOT`、`UNAVAILABLE`。每个模块都会显示数据状态与最后真实更新时间，页面刷新时间不等于数据更新时间。
-- `SNAPSHOT` / fallback 只用于防止页面空白，不参与 Risk Regime、机会榜、盘前交易计划或期权代理方向评分。
+- `SNAPSHOT` / fallback 用于防止页面空白，并以低置信度代理输入参与方向辅助；页面会明确标记其可信度，不能视作机构级实时信号。
 - `CACHED` 数据超过 15 分钟后不参与交易评分。
-- Yahoo / Reddit / TradingView 可显示 `LIVE` 或 `DELAYED`；Finviz、Benzinga、X Macro、Unusual Whales 在未接入真实授权 API 前统一显示 `PROXY` 或 `SNAPSHOT`。
+- Finnhub / TwelveData / Yahoo / Reddit / TradingView 可显示 `LIVE` 或 `DELAYED`；Finviz、Benzinga、X Macro、Unusual Whales 在未接入真实授权 API 前统一显示 `PROXY` 或 `SNAPSHOT`。
 - 如果多源行情失败，SPY、QQQ、NDX、VIX、TNX、DXY、GOLD 使用最近结构快照，不显示 0，不显示 Yahoo waiting。
 - 盘前异动榜优先使用新闻/异动源；如果 movers 为空，自动从 Yahoo quotes 按涨跌幅绝对值生成；quotes 也为空时使用 snapshot movers。
 - Options Flow Proxy 不是真实机构期权大单流，只是基于价格动量、相对成交量、板块热度、新闻情绪、相对强弱、盘前涨跌和散户关注生成的代理信号。
@@ -18,12 +18,14 @@
 
 ## 当前免费版数据限制
 
+- 推荐在 Vercel Environment Variables 添加 `FINNHUB_API_KEY` 与 `TWELVEDATA_API_KEY`。不添加也能运行，但 Finnhub / TwelveData 会显示 `UNAVAILABLE`，系统会降级到 Yahoo / Stooq / proxy / snapshot。
+- `TRADIER_TOKEN` 可预留给未来真实期权数据；当前版本不会使用它，也不会因为未配置而报错。
 - 没有真实 Unusual Whales / Cheddar Flow / Polygon Options 级别的期权大单流。
 - 没有真实 Benzinga 授权新闻 API，Yahoo RSS 与新闻代理可能延迟。
 - 没有 WebSocket 实时行情，Yahoo / TradingView / Reddit 可能延迟、限流或间歇失败。
 - TradingView / Yahoo / Stooq / AlphaVantage demo 是免费行情适配层，不保证逐笔实时。
-- Snapshot 只用于避免页面空白和保留结构参考，不参与交易判断。
-- 如果核心行情不可用，系统会显示“数据不足”，不会用静态快照假装生成 Risk-On / Risk-Off 或强交易信号。
+- Snapshot 用于避免页面空白和保留结构参考；系统会降级为低置信度 proxy inference，不应视作真实实时交易确认。
+- 只有 API 完全不可用且行情为空时，系统才显示“数据不足”。
 
 ## 本地运行
 
@@ -65,6 +67,8 @@ Vercel 设置建议：
 每个源只负责自己的模块：
 
 - Yahoo Finance / Stooq / AlphaVantage demo：指数、价格、盘前涨跌基础数据
+- Finnhub：优先股票行情、公司新闻与市场新闻
+- TwelveData：补充 ETF、指数、外汇与商品行情
 - TradingView Screener：趋势筛选与明星股池
 - Macro Proxy：宏观快讯
 - WallStreetBets Reddit：散户情绪
@@ -81,6 +85,8 @@ window.DASHBOARD_CONFIG = {
   refreshSeconds: 60,
   endpoints: {
     snapshot: "/api/snapshot",
+    finnhub: "/api/finnhub",
+    twelvedata: "/api/twelvedata",
     yahoo: "/api/yahoo",
     reddit: "/api/reddit",
     xMacro: "/api/x-macro",
@@ -100,6 +106,8 @@ window.DASHBOARD_CONFIG = {
 {
   "generatedAt": 1778935162481,
   "sources": {
+    "finnhub": { "status": "live", "data": [] },
+    "twelveData": { "status": "delayed", "data": [] },
     "yahoo": { "status": "live", "data": { "indices": [], "quotes": [] } },
     "benzinga": { "status": "proxy", "data": { "movers": [], "news": [] } },
     "unusualWhales": { "status": "proxy", "data": [] }

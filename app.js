@@ -5,6 +5,8 @@ const FALLBACK_SNAPSHOT_LABEL = "快照数据（SNAPSHOT）";
 const CACHE_TRADABLE_MS = 15 * 60 * 1000;
 
 const sourceCatalog = {
+  finnhub: "Finnhub",
+  twelveData: "TwelveData",
   yahoo: "Yahoo Finance",
   tradingView: "TradingView Screener",
   xMacro: "Walter Bloomberg X / Kobeissi X",
@@ -367,6 +369,13 @@ async function loadBenzinga() {
   };
 }
 
+async function loadProviderStatus(key) {
+  const url = key === "twelveData" ? endpoint("twelvedata") || endpoint("twelveData") : endpoint(key);
+  const json = await fetchJson(url);
+  if (json.status === "unavailable") throw new Error(json.error?.message || `${key} unavailable`);
+  return json.data || [];
+}
+
 async function loadServerSnapshot() {
   const url = endpoint("snapshot");
   if (!url) return null;
@@ -400,7 +409,9 @@ function hasSnapshotData(data) {
 }
 
 async function loadAllSources() {
-  const [yahoo, tradingView, xMacro, reddit, finviz, unusualWhales, benzinga] = await Promise.all([
+  const [finnhub, twelveData, yahoo, tradingView, xMacro, reddit, finviz, unusualWhales, benzinga] = await Promise.all([
+    withFallback("finnhub", () => loadProviderStatus("finnhub"), []),
+    withFallback("twelveData", () => loadProviderStatus("twelveData"), []),
     withFallback("yahoo", loadYahoo, fallback.yahoo),
     withFallback("tradingView", () => loadConfiguredArray("tradingViewScreener", fallback.tradingView), fallback.tradingView),
     withFallback("xMacro", () => loadConfiguredArray("xMacro", fallback.xMacro), fallback.xMacro),
@@ -411,6 +422,8 @@ async function loadAllSources() {
   ]);
 
   return {
+    finnhub,
+    twelveData,
     yahoo,
     tradingView,
     xMacro,
@@ -456,6 +469,8 @@ function loadCachedSources() {
 function fallbackSources() {
   return {
     yahoo: fallbackSource("yahoo", fallback.yahoo),
+    finnhub: fallbackSource("finnhub", []),
+    twelveData: fallbackSource("twelveData", []),
     tradingView: fallbackSource("tradingView", fallback.tradingView),
     xMacro: fallbackSource("xMacro", fallback.xMacro),
     reddit: fallbackSource("reddit", fallback.reddit),
@@ -1543,6 +1558,8 @@ function sourceScoringLabel(item) {
 
 function sourceRole(key) {
   return {
+    finnhub: "Finnhub 行情与新闻：有 API key 时作为优先源。",
+    twelveData: "TwelveData 跨资产行情：补充指数、外汇与商品。",
     yahoo: "指数、价格、盘前涨跌基础数据。",
     tradingView: "趋势筛选与强势股池。",
     xMacro: "宏观快讯，不参与个股新闻。",

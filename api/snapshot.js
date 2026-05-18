@@ -305,6 +305,16 @@ async function loadTwelveDataMarketData(symbols) {
     : { data: [], status: "unavailable", label: "TwelveData", error: "TwelveData returned no usable quotes" };
 }
 
+async function loadFinnhubQuotes(symbols) {
+  const result = await loadFinnhubMarketData(symbols);
+  return result.data || [];
+}
+
+async function loadTwelveDataQuotes(symbols) {
+  const result = await loadTwelveDataMarketData(symbols);
+  return result.data || [];
+}
+
 async function fetchYahooQuote(symbol) {
   const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbol)}`;
   const payload = await fetchJson(url, { timeoutMs: 9000 });
@@ -355,30 +365,43 @@ function stooqSymbol(symbol) {
   return `${clean.toLowerCase()}.us`;
 }
 
-async function loadMarketData(rawSymbols, providerRows = {}) {
-  const marketEntries = Object.entries(MARKET_SYMBOLS);
-  const symbols = cleanSymbols(rawSymbols).split(",").filter(Boolean);
-  const quoteSymbols = symbols.filter((item) => !Object.values(MARKET_SYMBOLS).includes(item) && !item.startsWith("^")).slice(0, 40);
-  const finnhubMap = new Map((providerRows.finnhub || []).map((item) => [item.symbol, item]));
-  const twelveMap = new Map((providerRows.twelveData || []).map((item) => [item.symbol, item]));
-  const pickProviderRow = (symbol) => finnhubMap.get(symbol) || twelveMap.get(symbol) || null;
-  const [fallbackMarketRows, fallbackStockRows] = await Promise.all([
-    Promise.all(marketEntries.map(async ([id, symbol]) => [id, await fetchWithFallback(symbol)])),
-    Promise.all(quoteSymbols.map((symbol) => fetchWithFallback(symbol).then((row) => [symbol, row]).catch(() => [symbol, null])))
-  ]);
-  const fallbackMarketMap = new Map(fallbackMarketRows.map(([id, row]) => [id, row]));
-  const fallbackStockMap = new Map(fallbackStockRows.map(([symbol, row]) => [symbol, row]));
+function normalizeTradingViewQuote(item = {}) {
+  const symbol = String(item.symbol || "").split(":").pop();
+  const price = Number(item.close || item.price || 0);
+  const change = Number(item.change || 0);
+  if (!symbol || !Number.isFinite(price) || price <= 0) return null;
+  return {
+    symbol,
+    price,
+    change,
+    regularChange: change,
+    volume: Number(item.volume || 0),
+    averageVolume: 0,
+    dataStatus: "DELAYED",
+    provider: "TradingView"
+  };
+}
 
+function mergeMarketQuotes({ symbols, marketEntries, finnhubRows = [], twelveDataRows = [], tradingViewRows = [], fallbackMarketMap = new Map(), fallbackStockMap = new Map() }) {
+  const snapshotById = new Map(snapshotIndices.map((item) => [item.id, item]));
+  const snapshotBySymbol = new Map(snapshotQuotes.map((item) => [item.symbol, item]));
+  const finnhubMap = new Map((finnhubRows || []).map((item) => [item.symbol, item]));
+  const twelveMap = new Map((twelveDataRows || []).map((item) => [item.symbol, item]));
+  const tradingViewMap = new Map((tradingViewRows || []).map((item) => [item.symbol, normalizeTradingViewQuote(item)]).filter(([, row]) => row));
+
+  // Index priority: TwelveData -> Finnhub -> Yahoo/Stooq/Alpha -> Snapshot
   const indices = marketEntries.map(([id, providerSymbol]) => {
-    const fallback = snapshotIndices.find((item) => item.id === id);
-    const row = pickProviderRow(providerSymbol) || pickProviderRow(id) || fallbackMarketMap.get(id);
+    const fallback = snapshotById.get(id);
+    const row = twelveMap.get(providerSymbol) || twelveMap.get(id) || finnhubMap.get(providerSymbol) || finnhubMap.get(id) || fallbackMarketMap.get(id);
     if (!row) return { ...fallback, note: "SNAPSHOT：行情源暂不可用，使用最近结构快照。", status: "SNAPSHOT" };
-    return metric(id, fallback.name, row.price || fallback.value, row.change ?? fallback.change, `${row.dataStatus}：${row.provider || "多源行情适配器"}。`, row.dataStatus);
+    return metric(id, fallback.name, row.price || fallback.value, row.change ?? fallback.change, `${row.dataStatus}：${row.provider || "行情适配器"}。`, row.dataStatus);
   });
 
-  const quotes = quoteSymbols.map((symbol) => {
-    const fallback = snapshotQuotes.find((item) => item.symbol === symbol);
-    const row = pickProviderRow(symbol) || fallbackStockMap.get(symbol);
+  // Stock priority: Finnhub -> TwelveData -> TradingView -> Yahoo/Stooq/Alpha -> Snapshot
+  const stockSymbols = symbols.filter((item) => !Object.values(MARKET_SYMBOLS).includes(item) && !item.startsWith("^")).slice(0, 40);
+  const quotes = stockSymbols.map((symbol) => {
+    const fallback = snapshotBySymbol.get(symbol);
+    const row = finnhubMap.get(symbol) || twelveMap.get(symbol) || tradingViewMap.get(symbol) || fallbackStockMap.get(symbol);
     if (!row && fallback) return { ...fallback, dataStatus: "SNAPSHOT", dataQuality: "snapshot", isTradable: false, source: "Fallback Snapshot" };
     if (!row) return null;
     const relativeVolume = row.volume && row.averageVolume ? row.volume / row.averageVolume : fallback?.relativeVolume || 1;
@@ -390,7 +413,29 @@ async function loadMarketData(rawSymbols, providerRows = {}) {
     });
   }).filter(Boolean);
 
-  return { data: { indices, quotes: quotes.length ? quotes : snapshotQuotes }, status: indices.some((item) => item.status === "LIVE") ? "live" : "delayed", label: "Multi-source Market Data" };
+  return { indices, quotes: quotes.length ? quotes : snapshotQuotes };
+}
+
+async function loadMarketData(rawSymbols, providerRows = {}) {
+  const marketEntries = Object.entries(MARKET_SYMBOLS);
+  const symbols = cleanSymbols(rawSymbols).split(",").filter(Boolean);
+  const quoteSymbols = symbols.filter((item) => !Object.values(MARKET_SYMBOLS).includes(item) && !item.startsWith("^")).slice(0, 40);
+  const [fallbackMarketRows, fallbackStockRows] = await Promise.all([
+    Promise.all(marketEntries.map(async ([id, symbol]) => [id, await fetchWithFallback(symbol)])),
+    Promise.all(quoteSymbols.map((symbol) => fetchWithFallback(symbol).then((row) => [symbol, row]).catch(() => [symbol, null])))
+  ]);
+  const fallbackMarketMap = new Map(fallbackMarketRows.map(([id, row]) => [id, row]));
+  const fallbackStockMap = new Map(fallbackStockRows.map(([symbol, row]) => [symbol, row]));
+  const merged = mergeMarketQuotes({
+    symbols,
+    marketEntries,
+    finnhubRows: providerRows.finnhub || [],
+    twelveDataRows: providerRows.twelveData || [],
+    tradingViewRows: providerRows.tradingView || [],
+    fallbackMarketMap,
+    fallbackStockMap
+  });
+  return { data: merged, status: merged.indices.some((item) => item.status === "LIVE") ? "live" : "delayed", label: "Multi-source Market Data" };
 }
 
 async function loadTradingView() {
@@ -405,10 +450,10 @@ async function loadTradingView() {
     })
   });
   const rows = (payload.data || []).map((row) => {
-    const [symbol, _close, change, volume, recommendation, rsi] = row.d || [];
+    const [symbol, close, change, volume, recommendation, rsi] = row.d || [];
     const [, sector] = symbolMeta[symbol] || [symbol, "强势股"];
     const score = clamp(Math.round(55 + (change || 0) * 4 + (recommendation || 0) * 18 + ((rsi || 50) - 50) * 0.35));
-    return { symbol, score, sector, change: change || 0, volume: volume || 0, rsi: rsi || 50, recommendation: recommendation || 0, logic: `动量 ${Number(change || 0).toFixed(2)}%，RSI ${Number(rsi || 0).toFixed(1)}。` };
+    return { symbol, close: Number(close || 0), score, sector, change: change || 0, volume: volume || 0, rsi: rsi || 50, recommendation: recommendation || 0, logic: `动量 ${Number(change || 0).toFixed(2)}%，RSI ${Number(rsi || 0).toFixed(1)}。` };
   }).filter((item) => item.symbol);
   if (!rows.length) throw new Error("TradingView empty scan");
   return rows.sort((a, b) => b.score - a.score).slice(0, 8);
@@ -455,10 +500,10 @@ async function loadYahooNews() {
   return items.slice(0, 8);
 }
 
-async function loadFinnhubNews(symbols) {
+async function loadFinnhubCompanyNews(symbols) {
   const token = process.env.FINNHUB_API_KEY;
-  if (!token) return { data: [], status: "unavailable", label: "Finnhub News", error: "FINNHUB_API_KEY is not configured" };
-  const tickers = cleanSymbols(symbols).split(",").filter((symbol) => symbolMeta[symbol]).slice(0, 12);
+  if (!token) return [];
+  const tickers = cleanSymbols(symbols).split(",").filter((symbol) => symbolMeta[symbol]).slice(0, 20);
   const to = new Date();
   const from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const fmt = (date) => date.toISOString().slice(0, 10);
@@ -470,14 +515,30 @@ async function loadFinnhubNews(symbols) {
       return [];
     }
   }));
-  let marketNews = [];
+  return companyNews.flat();
+}
+
+async function loadFinnhubMarketNews() {
+  const token = process.env.FINNHUB_API_KEY;
+  if (!token) return [];
   try {
     const payload = await fetchJson(`https://finnhub.io/api/v1/news?category=general&token=${encodeURIComponent(token)}`, { timeoutMs: 9000 });
-    marketNews = Array.isArray(payload) ? payload.slice(0, 12) : [];
-  } catch {}
-  const rawItems = [...companyNews.flat(), ...marketNews]
+    return Array.isArray(payload) ? payload.slice(0, 30) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function loadFinnhubNews(symbols) {
+  const token = process.env.FINNHUB_API_KEY;
+  if (!token) return { data: [], status: "unavailable", label: "Finnhub News", error: "FINNHUB_API_KEY is not configured" };
+  const [companyNews, marketNews] = await Promise.all([
+    loadFinnhubCompanyNews(symbols),
+    loadFinnhubMarketNews()
+  ]);
+  const rawItems = [...companyNews, ...marketNews]
     .sort((a, b) => Number(b.datetime || 0) - Number(a.datetime || 0))
-    .slice(0, 30);
+    .slice(0, 40);
   const items = rawItems.flatMap((item, index) => {
     const title = item.headline || item.title || "";
     const summary = item.summary || title;
@@ -490,7 +551,7 @@ async function loadFinnhubNews(symbols) {
     return analyzed ? [{ ...analyzed, url: item.url, provider: "Finnhub" }] : [];
   });
   return items.length
-    ? { data: items.slice(0, 10), status: "delayed", label: "Finnhub News" }
+    ? { data: items.slice(0, 12), status: "delayed", label: "Finnhub News" }
     : { data: [], status: "unavailable", label: "Finnhub News", error: "Finnhub returned no usable news" };
 }
 
@@ -756,14 +817,24 @@ export async function buildSnapshot(req) {
   const defaultSymbols = "SPY,QQQ,NVDA,AMD,AVGO,MRVL,MSFT,AMZN,META,TSLA,PLTR,ORCL,CRWD,COIN,MSTR,DASH,CSCO,LLY,AAPL";
   const symbols = cleanSymbols(req?.query?.symbols || defaultSymbols);
   const marketSymbols = `${Object.values(MARKET_SYMBOLS).join(",")},${symbols}`;
-  const [finnhub, twelveData] = await Promise.all([
-    settleSource("finnhub", () => loadFinnhubMarketData(marketSymbols), generatedAt, []),
-    settleSource("twelveData", () => loadTwelveDataMarketData(marketSymbols), generatedAt, [])
+  const [finnhub, twelveData, tradingView] = await Promise.all([
+    settleSource("finnhub", async () => {
+      const data = await loadFinnhubQuotes(marketSymbols);
+      return { data, status: data.length ? "live" : "unavailable", label: "Finnhub" };
+    }, generatedAt, []),
+    settleSource("twelveData", async () => {
+      const data = await loadTwelveDataQuotes(marketSymbols);
+      return { data, status: data.length ? "delayed" : "unavailable", label: "TwelveData" };
+    }, generatedAt, []),
+    settleSource("tradingView", loadTradingView, generatedAt, [])
   ]);
-  const yahoo = await settleSource("yahoo", () => loadMarketData(symbols, { finnhub: finnhub.data || [], twelveData: twelveData.data || [] }), generatedAt, { indices: snapshotIndices, quotes: snapshotQuotes });
-  const [reddit, tradingView, finnhubNews, yahooNews] = await Promise.all([
+  const yahoo = await settleSource("yahoo", () => loadMarketData(symbols, {
+    finnhub: finnhub.data || [],
+    twelveData: twelveData.data || [],
+    tradingView: tradingView.data || []
+  }), generatedAt, { indices: snapshotIndices, quotes: snapshotQuotes });
+  const [reddit, finnhubNews, yahooNews] = await Promise.all([
     settleSource("reddit", loadReddit, generatedAt, { score: 58, tone: "中性", mentions: [["NVDA", 8], ["TSLA", 6], ["AMD", 5]], summary: "SNAPSHOT：散户关注集中在 AI 与高 beta。" }),
-    settleSource("tradingView", loadTradingView, generatedAt, []),
     settleSource("finnhubNews", () => loadFinnhubNews(symbols), generatedAt, [], "Finnhub News"),
     settleSource("benzinga", loadYahooNews, generatedAt, snapshotNews, "Yahoo Finance News")
   ]);
