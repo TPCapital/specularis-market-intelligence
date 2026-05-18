@@ -1,4 +1,4 @@
-import { cleanSymbols, fetchJson, noStoreJson } from "./_utils.js";
+import { cleanSymbols, fetchJson, noStoreJson } from "../lib/utils.js";
 
 const FINNHUB_BASE = "https://finnhub.io/api/v1";
 

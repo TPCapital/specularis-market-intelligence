@@ -1,4 +1,4 @@
-import { fetchJson, json } from "./_utils.js";
+import { fetchJson, json } from "../lib/utils.js";
 
 export default async function handler(_req, res) {
   try {

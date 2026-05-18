@@ -1,4 +1,4 @@
-import { cleanSymbols, fetchJson, noStoreJson } from "./_utils.js";
+import { cleanSymbols, fetchJson, noStoreJson } from "../lib/utils.js";
 
 const TWELVEDATA_BASE = "https://api.twelvedata.com";
 

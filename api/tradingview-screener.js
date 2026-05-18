@@ -1,4 +1,4 @@
-import { fetchJson, json } from "./_utils.js";
+import { fetchJson, json } from "../lib/utils.js";
 
 const symbols = [
   "NASDAQ:NVDA",

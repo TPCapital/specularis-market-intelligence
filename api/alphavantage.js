@@ -1,4 +1,4 @@
-import { fetchJson, noStoreJson } from "./_utils.js";
+import { fetchJson, noStoreJson } from "../lib/utils.js";
 
 function unavailable(reason = "ALPHAVANTAGE_API_KEY is not configured") {
   return {

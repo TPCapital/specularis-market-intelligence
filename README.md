@@ -104,12 +104,8 @@ window.DASHBOARD_CONFIG = {
     twelvedata: "/api/twelvedata",
     alphavantage: "/api/alphavantage",
     fred: "/api/fred",
-    yahoo: "/api/yahoo",
     reddit: "/api/reddit",
-    xMacro: "/api/x-macro",
     finvizHeatmap: "/api/finviz-heatmap",
-    unusualWhales: "/api/unusual-whales",
-    benzinga: "/api/benzinga",
     tradingViewScreener: "/api/tradingview-screener"
   }
 };
@@ -132,4 +128,5 @@ window.DASHBOARD_CONFIG = {
 }
 ```
 
-`benzinga.data.movers` 若为空，前端会自动从 `yahoo.data.quotes` 派生，不让盘前异动榜空白。
+`benzinga.data.movers` 若为空，前端会自动从 `yahoo.data.quotes` 派生，不让盘前异动榜空白。  
+`Yahoo/Benzinga/UnusualWhales/X Macro` 当前为 `/api/snapshot` 内部聚合代理，不再单独暴露 `/api/*` 端点（兼容 Vercel Hobby 8 个函数上限）。

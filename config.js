@@ -10,12 +10,8 @@ window.DASHBOARD_CONFIG = {
     twelvedata: "/api/twelvedata",
     alphavantage: "/api/alphavantage",
     fred: "/api/fred",
-    yahoo: "/api/yahoo",
     reddit: "/api/reddit",
-    xMacro: "/api/x-macro",
     finvizHeatmap: "/api/finviz-heatmap",
-    unusualWhales: "/api/unusual-whales",
-    benzinga: "/api/benzinga",
     tradingViewScreener: "/api/tradingview-screener"
   },
 

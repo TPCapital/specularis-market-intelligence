@@ -1,4 +1,4 @@
-import { json } from "./_utils.js";
+import { json } from "../lib/utils.js";
 
 export default async function handler(_req, res) {
   // Finviz heatmap does not provide a stable public JSON API for browser apps.

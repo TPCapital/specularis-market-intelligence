@@ -1,4 +1,4 @@
-import { fetchJson, noStoreJson } from "./_utils.js";
+import { fetchJson, noStoreJson } from "../lib/utils.js";
 
 const SERIES = ["FEDFUNDS", "DGS10", "DGS2", "UNRATE", "CPIAUCSL"];
 

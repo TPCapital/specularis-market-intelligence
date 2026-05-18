@@ -157,15 +157,6 @@ async function handleApi(req, res, url) {
       return sendJson(res, 200, await buildSnapshot({ query: Object.fromEntries(url.searchParams.entries()) }));
     }
 
-    if (url.pathname === "/api/cron-refresh") {
-      const snapshot = await buildSnapshot({ query: Object.fromEntries(url.searchParams.entries()) });
-      return sendJson(res, 200, {
-        ok: true,
-        generatedAt: snapshot.generatedAt,
-        sources: Object.fromEntries(Object.entries(snapshot.sources || {}).map(([key, value]) => [key, value.status]))
-      });
-    }
-
     if (url.pathname === "/api/finnhub") {
       return runVercelHandler(finnhubHandler, req, res, url);
     }
@@ -180,16 +171,6 @@ async function handleApi(req, res, url) {
 
     if (url.pathname === "/api/fred") {
       return runVercelHandler(fredHandler, req, res, url);
-    }
-
-    if (url.pathname === "/api/yahoo") {
-      const symbols = url.searchParams.get("symbols") || "SPY,QQQ,%5ENDX,%5EVIX,%5ETNX,GC%3DF,DX-Y.NYB";
-      const yahooUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`;
-      try {
-        return sendJson(res, 200, await fetchJson(yahooUrl));
-      } catch {
-        return sendJson(res, 200, await fetchStooqQuotes(symbols));
-      }
     }
 
     if (url.pathname === "/api/reddit") {
