@@ -15,7 +15,7 @@ const sourceCatalog = {
   insider: "Insider Layer",
   relativeVolume: "Relative Volume Scanner",
   marketBreadth: "Market Breadth Engine",
-  yahoo: "Yahoo Finance",
+  marketData: "Multi-source Market Data / Finnhub primary",
   tradingView: "TradingView Screener",
   xMacro: "Walter Bloomberg X / Kobeissi X",
   finnhubInsider: "Finnhub Insider",
@@ -64,30 +64,9 @@ const symbolMeta = {
 };
 
 const fallback = {
-  yahoo: {
-    indices: [
-      metric("SPY", "S&P 500 ETF", 689.12, 0.31, "快照数据（SNAPSHOT）：宽基风险资产仍有承接。"),
-      metric("QQQ", "Nasdaq ETF", 612.4, 0.46, "快照数据（SNAPSHOT）：科技权重占优。"),
-      metric("NDX", "Nasdaq 100", 25172.18, 0.48, "快照数据（SNAPSHOT）：科技风险偏好代理。"),
-      metric("VIX", "Volatility", 13.62, -2.01, "快照数据（SNAPSHOT）：尾部风险定价。"),
-      metric("TNX", "10Y Yield", 4.12, 0.87, "快照数据（SNAPSHOT）：长端利率锚。"),
-      metric("DXY", "Dollar Index", 98.36, -0.11, "快照数据（SNAPSHOT）：美元流动性代理。"),
-      metric("GOLD", "Gold", 3378.4, -0.24, "快照数据（SNAPSHOT）：避险资产代理。")
-    ],
-    quotes: [
-      quote("CSCO", 79.9, 15.03, 3.6),
-      quote("PLTR", 227.4, 4.82, 2.9),
-      quote("NVDA", 188.2, 2.35, 2.1),
-      quote("MRVL", 93.4, 2.08, 1.7),
-      quote("DASH", 254.1, 1.92, 1.6),
-      quote("MSTR", 462.5, 1.76, 1.8),
-      quote("AMD", 238.3, 1.64, 1.5),
-      quote("CRWD", 554.8, 1.28, 1.35),
-      quote("SNOW", 284.2, 1.18, 1.25),
-      quote("COIN", 358.9, 1.11, 1.4),
-      quote("XOM", 117.3, -0.28, 0.9),
-      quote("UNH", 312.4, -1.24, 1.3)
-    ]
+  marketData: {
+    indices: [],
+    quotes: []
   },
   tradingView: [
     leader("CSCO", 92, "价格突破 + 量能扩张 + 趋势强度高。"),
@@ -300,7 +279,7 @@ function loadCachedSources() {
 
 function fallbackSources() {
   return {
-    yahoo: fallbackSource("yahoo", fallback.yahoo),
+    marketData: fallbackSource("marketData", fallback.marketData),
     finnhub: fallbackSource("finnhub", []),
     twelveData: fallbackSource("twelveData", []),
     alphavantage: fallbackSource("alphavantage", null),
@@ -464,7 +443,7 @@ function buildDashboard(sources) {
   sources = enrichSources(sources);
   const reliability = computeDataReliability(sources);
   const scoreEligible = {
-    quotes: isCoreScoreSource(sources.yahoo),
+    quotes: isCoreScoreSource(sources.marketData),
     sectors: isCoreScoreSource(sources.finviz),
     news: isCoreScoreSource(sources.benzinga),
     retail: isCoreScoreSource(sources.reddit),
@@ -475,17 +454,17 @@ function buildDashboard(sources) {
     breadth: isCoreScoreSource(sources.marketBreadth)
   };
   const benzingaData = sources.benzinga?.data || {};
-  const yahooQuotes = normalizeQuotes(sources.yahoo?.data?.quotes || fallback.yahoo.quotes, sources.yahoo);
-  const marketIndices = sanitizeIndices(sources.yahoo?.data?.indices, sources.yahoo);
-  const quotesForScoring = scoreEligible.quotes ? yahooQuotes : [];
+  const marketQuotes = normalizeQuotes(sources.marketData?.data?.quotes || fallback.marketData.quotes, sources.marketData);
+  const marketIndices = sanitizeIndices(sources.marketData?.data?.indices, sources.marketData);
+  const quotesForScoring = scoreEligible.quotes ? marketQuotes : [];
   const indicesForScoring = scoreEligible.quotes ? marketIndices : [];
-  const quoteMap = new Map(yahooQuotes.map((item) => [item.symbol, item]));
+  const quoteMap = new Map(marketQuotes.map((item) => [item.symbol, item]));
   const flows = normalizeSectors(sources.finviz.data, sources.finviz);
   const flowsForScoring = scoreEligible.sectors ? flows : [];
   const moversRaw = Array.isArray(benzingaData.movers) && benzingaData.movers.length
     ? benzingaData.movers
-    : deriveMoversFromQuotes(yahooQuotes);
-  const movers = normalizeMovers(moversRaw, quoteMap, yahooQuotes);
+    : deriveMoversFromQuotes(marketQuotes);
+  const movers = normalizeMovers(moversRaw, quoteMap, marketQuotes);
   const stars = normalizeStars(sources.tradingView.data, quoteMap);
   const retail = sources.reddit.data;
   const newsItems = Array.isArray(sources.benzinga?.data?.news) ? sources.benzinga.data.news : [];
@@ -538,14 +517,14 @@ function buildDashboard(sources) {
         fallback: value.fallback
       })),
     moduleStatus: {
-      risk: statusGroup([sources.yahoo]),
-      index: statusGroup([sources.yahoo]),
+      risk: statusGroup([sources.marketData]),
+      index: statusGroup([sources.marketData]),
       sentiment: { status: "snapshot", timestamp: "低置信度代理" },
       flow: statusGroup([sources.finviz]),
       mover: statusGroup([sources.benzinga]),
       star: statusGroup([sources.tradingView]),
-      opportunity: statusGroup([sources.yahoo, sources.finviz, sources.reddit, sources.benzinga]),
-      tradePlan: statusGroup([sources.yahoo, sources.finviz, sources.unusualWhales]),
+      opportunity: statusGroup([sources.marketData, sources.finviz, sources.reddit, sources.benzinga]),
+      tradePlan: statusGroup([sources.marketData, sources.finviz, sources.unusualWhales]),
       news: statusGroup([sources.benzinga]),
       macro: statusGroup([sources.xMacro]),
       retail: statusGroup([sources.reddit]),
@@ -580,10 +559,10 @@ function latestDataTimestamp(sources) {
   return usable[0] ? formatDateTime(usable[0].updatedAt) : "无可用实时数据";
 }
 
-function sanitizeIndices(indices = [], yahooSource = {}) {
-  const fallbackById = new Map(fallback.yahoo.indices.map((item) => [item.id, item]));
+function sanitizeIndices(indices = [], marketSource = {}) {
+  const fallbackById = new Map(fallback.marketData.indices.map((item) => [item.id, item]));
   const byId = new Map((indices || []).map((item) => [item.id, item]));
-  return fallback.yahoo.indices.map((fallbackMetric) => {
+  return fallback.marketData.indices.map((fallbackMetric) => {
     const live = byId.get(fallbackMetric.id);
     const value = Number(live?.value);
     if (!Number.isFinite(value) || value <= 0) {
@@ -598,7 +577,7 @@ function sanitizeIndices(indices = [], yahooSource = {}) {
         note: "快照数据（SNAPSHOT）：低置信度代理输入，用于维持方向判断。"
       };
     }
-    const item = attachQuality(live, yahooSource, yahooSource.label, live.status || yahooSource.status);
+    const item = attachQuality(live, marketSource, marketSource.label, live.status || marketSource.status);
     return {
       ...item,
       note: item.isTradable ? item.note : "快照数据（SNAPSHOT）：低置信度代理输入，用于维持方向判断。"
@@ -738,7 +717,7 @@ function normalizeOptions(items = [], source = {}) {
 function normalizeMovers(items = [], quoteMap, quotes = []) {
   const sourceItems = Array.isArray(items) && items.length
     ? items
-    : deriveMoversFromQuotes(quotes?.length ? quotes : fallback.yahoo.quotes);
+    : deriveMoversFromQuotes(quotes?.length ? quotes : fallback.marketData.quotes);
   return sourceItems
     .filter((item) => item && item.symbol)
     .map((item) => {
@@ -790,7 +769,7 @@ function normalizeStars(items, quoteMap) {
         name: item.name || name,
         sector: item.sector || sectorName,
         heat,
-        logic: item.logic || "TradingView 趋势强度与 Yahoo 盘前动量共振。",
+        logic: item.logic || "TradingView 趋势强度与多源盘前动量共振。",
         persistence: heat >= 84 ? "高" : heat >= 70 ? "中高" : "中性"
       };
     })
@@ -1490,15 +1469,15 @@ function sourceRole(key) {
     insider: "Insider Layer：内部人交易方向与强度。",
     relativeVolume: "Relative Volume Scanner：盘前量能扩张识别。",
     marketBreadth: "Market Breadth Engine：市场参与度与广度评分。",
-    yahoo: "指数、价格、盘前涨跌基础数据。",
+    marketData: "核心行情聚合：Multi-source Market Data / Finnhub primary。",
     tradingView: "趋势筛选与强势股池。",
     finnhubInsider: "机构行为层：内部人交易线索。",
     finnhubEarnings: "财报驱动层：财报日历与预期偏差。",
     xMacro: "宏观快讯，不参与个股新闻。",
     reddit: "散户情绪，只读取 WSB。",
-    finviz: "热钱板块：Finviz 适配器或 Yahoo 板块代理。",
+    finviz: "热钱板块：Finviz 适配器。",
     unusualWhales: "期权流代理信号：免费数据推断方向。",
-    benzinga: "异动新闻：Benzinga 适配器或 Yahoo 新闻代理。"
+    benzinga: "异动新闻：Benzinga 适配器。"
   }[key];
 }
 

@@ -6,7 +6,7 @@ window.DASHBOARD_CONFIG = {
     snapshot: "/api/snapshot"
   },
 
-  yahooSymbols: [
+  marketSymbols: [
     "SPY",
     "QQQ",
     "^NDX",

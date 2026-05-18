@@ -25,7 +25,7 @@ const sourceCatalog = {
   insider: "Insider Layer",
   relativeVolume: "Relative Volume Scanner",
   marketBreadth: "Market Breadth Engine",
-  yahoo: "Market Data Adapter",
+  marketData: "Multi-source Market Data",
   tradingView: "TradingView Screener",
   xMacro: "Macro Feed",
   reddit: "WallStreetBets Reddit",
@@ -104,11 +104,11 @@ const lastGoodTwelveDataQuotes = new Map();
 const SOURCE_DEBUG_PREFIX = "[snapshot:debug]";
 
 function lastGoodIndices() {
-  return lastGoodSnapshot?.sources?.yahoo?.data?.indices || [];
+  return lastGoodSnapshot?.sources?.marketData?.data?.indices || [];
 }
 
 function lastGoodQuotes() {
-  return lastGoodSnapshot?.sources?.yahoo?.data?.quotes || [];
+  return lastGoodSnapshot?.sources?.marketData?.data?.quotes || [];
 }
 
 function normalizeDataQuality(status = "") {
@@ -283,10 +283,6 @@ async function fetchWithFallback(symbol) {
   try {
     const alpha = await fetchAlphaVantageQuote(symbol);
     if (alpha) return { ...alpha, dataStatus: "DELAYED" };
-  } catch {}
-  try {
-    const yahoo = await fetchYahooQuote(symbol);
-    if (yahoo) return { ...yahoo, dataStatus: "DELAYED" };
   } catch {}
   return null;
 }
@@ -588,21 +584,6 @@ async function loadTwelveDataQuotes(symbols) {
   return result.data || [];
 }
 
-async function fetchYahooQuote(symbol) {
-  const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbol)}`;
-  const payload = await fetchJson(url, { timeoutMs: 9000 });
-  const row = payload.quoteResponse?.result?.[0];
-  if (!row?.regularMarketPrice) return null;
-  return {
-    symbol,
-    price: row.preMarketPrice ?? row.regularMarketPrice,
-    change: row.preMarketChangePercent ?? row.regularMarketChangePercent ?? 0,
-    regularChange: row.regularMarketChangePercent ?? 0,
-    volume: row.regularMarketVolume ?? 0,
-    averageVolume: row.averageDailyVolume3Month ?? 0
-  };
-}
-
 async function fetchStooqQuote(symbol) {
   const stooq = stooqSymbol(symbol);
   if (!stooq) return null;
@@ -682,10 +663,10 @@ function mergeMarketQuotes({ symbols, marketEntries, finnhubRows = [], twelveDat
   const twelveMap = new Map((twelveDataRows || []).map((item) => [item.symbol, item]));
   const tradingViewMap = new Map((tradingViewRows || []).map((item) => [item.symbol, normalizeTradingViewQuote(item)]).filter(([, row]) => row));
 
-  // Index priority: TwelveData -> Finnhub -> Yahoo/Stooq/Alpha -> Snapshot
+  // Index priority: TwelveData -> Finnhub -> Stooq/Alpha -> cached snapshot
   const indices = marketEntries.map(([id, providerSymbol]) => {
     const fallback = snapshotById.get(id);
-    const row = twelveMap.get(providerSymbol) || twelveMap.get(id) || finnhubMap.get(providerSymbol) || finnhubMap.get(id) || fallbackMarketMap.get(id);
+    const row = finnhubMap.get(providerSymbol) || finnhubMap.get(id) || twelveMap.get(providerSymbol) || twelveMap.get(id) || fallbackMarketMap.get(id);
     if (!row) {
       if (fallback) return { ...fallback, note: "STALE：实时行情源暂不可用，使用最近有效缓存。", status: "STALE", dataQuality: "stale", isTradable: false };
       return metric(id, MARKET_INDEX_META[id] || id, null, null, "UNAVAILABLE：无可用指数数据。", "UNAVAILABLE");
@@ -694,7 +675,7 @@ function mergeMarketQuotes({ symbols, marketEntries, finnhubRows = [], twelveDat
     return metric(id, baseName, row.price ?? fallback?.value ?? null, row.change ?? fallback?.change ?? null, `${row.dataStatus}：${row.provider || "行情适配器"}。`, row.dataStatus);
   });
 
-  // Stock priority: Finnhub -> TwelveData -> TradingView -> Yahoo/Stooq/Alpha -> Snapshot
+  // Stock priority: Finnhub -> TwelveData -> TradingView -> Stooq/Alpha -> cached snapshot
   const stockSymbols = symbols.filter((item) => !Object.values(MARKET_SYMBOLS).includes(item) && !item.startsWith("^")).slice(0, 40);
   const quotes = stockSymbols.map((symbol) => {
     const fallback = snapshotBySymbol.get(symbol);
@@ -732,7 +713,22 @@ async function loadMarketData(rawSymbols, providerRows = {}) {
     fallbackMarketMap,
     fallbackStockMap
   });
-  return { data: merged, status: merged.indices.some((item) => item.status === "LIVE") ? "live" : "delayed", label: "Multi-source Market Data" };
+  const hasFinnhub = Array.isArray(providerRows.finnhub) && providerRows.finnhub.length > 0;
+  const hasTwelve = Array.isArray(providerRows.twelveData) && providerRows.twelveData.length > 0;
+  const provider = hasFinnhub ? "Finnhub" : hasTwelve ? "TwelveData" : "Fallback Cache";
+  const status = hasFinnhub ? "live" : hasTwelve ? "delayed" : "snapshot";
+  const fallback = !hasFinnhub && !hasTwelve;
+  const confidence = hasFinnhub ? "HIGH" : hasTwelve ? "MEDIUM" : "LOW";
+  return {
+    data: { ...merged, provider },
+    provider,
+    indices: merged.indices,
+    quotes: merged.quotes,
+    status,
+    fallback,
+    confidence,
+    label: hasFinnhub ? "Multi-source Market Data / Finnhub primary" : hasTwelve ? "Multi-source Market Data / TwelveData secondary" : "Multi-source Market Data / Cached fallback"
+  };
 }
 
 async function loadTradingView() {
@@ -1388,7 +1384,7 @@ export async function buildSnapshot(req) {
     symbols,
     finnhubKey: process.env.FINNHUB_API_KEY || ""
   }), generatedAt, { signals: [] }, "Insider Layer");
-  const yahoo = await settleSource("yahoo", () => loadMarketData(symbols, {
+  const marketData = await settleSource("marketData", () => loadMarketData(symbols, {
     finnhub: finnhubProbe.quotes || [],
     twelveData: twelveData.data || [],
     tradingView: tradingView.data || []
@@ -1402,7 +1398,7 @@ export async function buildSnapshot(req) {
     settleSource("secNews", loadSecFilingsNews, generatedAt, [], "SEC Filing Feed")
   ]);
 
-  const quotes = yahoo.data?.quotes?.length ? yahoo.data.quotes : [];
+  const quotes = marketData.data?.quotes?.length ? marketData.data.quotes : [];
   const finnhubEarningsNews = source("finnhubEarnings", buildEarningsNewsEvents(earnings.data || []), (earnings.data || []).length ? "delayed" : "unavailable", generatedAt, "Finnhub Earnings");
   const finnhubInsiderNews = source("finnhubInsider", buildInsiderNewsEvents(insider.data || []), (insider.data || []).length ? "delayed" : "unavailable", generatedAt, "Finnhub Insider");
   const newsCandidates = [
@@ -1432,12 +1428,12 @@ export async function buildSnapshot(req) {
     earnings: earningsLayer.data?.events || [],
     insider: insiderLayer.data?.signals || []
   }) : [];
-  const riskRegime = calculateRiskRegime(yahoo.data?.indices || []);
+  const riskRegime = calculateRiskRegime(marketData.data?.indices || []);
   const marketBreadthData = buildMarketBreadth({
     quotes,
     sectors: sectorData,
-    indices: yahoo.data?.indices || [],
-    status: yahoo.status === "live" ? "live" : yahoo.status === "delayed" ? "delayed" : "stale"
+    indices: marketData.data?.indices || [],
+    status: marketData.status === "live" ? "live" : marketData.status === "delayed" ? "delayed" : "stale"
   });
   const marketBreadthLayer = await settleSource("marketBreadth", async () => marketBreadthData, generatedAt, {}, "Market Breadth Engine");
   const premarketScanner = runPremarketScanner({
@@ -1448,7 +1444,7 @@ export async function buildSnapshot(req) {
     relativeVolume: relativeVolumeLayer.data?.leaders || []
   });
   const signalEngine = buildSignalEngine({
-    indices: yahoo.data?.indices || [],
+    indices: marketData.data?.indices || [],
     scanner: premarketScanner,
     breadth: marketBreadthLayer.data || marketBreadthData,
     risk: riskRegime,
@@ -1473,6 +1469,12 @@ export async function buildSnapshot(req) {
   const xMacro = source("xMacro", [
     { source: "Macro Monitor", title: `${riskRegime.mode} 结构监控`, summary: riskRegime.mode === "Risk-On" ? "QQQ、VIX、DXY 与 TNX 组合支持科技风险偏好。" : "宏观变量仍需观察，避免无量追高。", tone: riskRegime.mode === "Risk-Off" ? "bearish" : "bullish" }
   ], "delayed", generatedAt, "Macro Risk Proxy");
+  const normalizedMarketDataSource = {
+    ...marketData,
+    provider: marketData.provider || marketData.data?.provider || "Fallback Cache",
+    indices: marketData.indices || marketData.data?.indices || [],
+    quotes: marketData.quotes || marketData.data?.quotes || []
+  };
 
   const snapshot = {
     generatedAt,
@@ -1510,7 +1512,7 @@ export async function buildSnapshot(req) {
         insider: insiderLayer,
         relativeVolume: relativeVolumeLayer,
         marketBreadth: marketBreadthLayer,
-        yahoo,
+        marketData: normalizedMarketDataSource,
         reddit,
         tradingView,
         finnhubNews,
@@ -1573,7 +1575,7 @@ export default async function handler(req, res) {
         insider: fallbackSource("insider", { signals: [] }),
         relativeVolume: fallbackSource("relativeVolume", { leaders: [] }),
         marketBreadth: fallbackSource("marketBreadth", {}),
-        yahoo: fallbackSource("yahoo", { indices: lastGoodIndices(), quotes: lastGoodQuotes() }),
+        marketData: fallbackSource("marketData", { indices: lastGoodIndices(), quotes: lastGoodQuotes() }),
         reddit: fallbackSource("reddit", { score: null, tone: "UNAVAILABLE", mentions: [], summary: "数据源不可用。" }),
         tradingView: fallbackSource("tradingView", []),
         xMacro: fallbackSource("xMacro", []),
