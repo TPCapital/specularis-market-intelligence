@@ -143,6 +143,8 @@ const tvSymbols = [
 
 let lastGoodSources = {};
 let lastGoodSnapshot = null;
+const lastGoodFinnhubQuotes = new Map();
+const lastGoodTwelveDataQuotes = new Map();
 
 function normalizeDataQuality(status = "") {
   const value = String(status || "").toLowerCase();
@@ -160,7 +162,7 @@ function isTradableQuality(dataQuality) {
 
 function metric(id, name, value, change, note, status = "SNAPSHOT") {
   const dataQuality = normalizeDataQuality(status);
-  return { id, name, value, change, note, status, dataQuality, isTradable: isTradableQuality(dataQuality), source: "Market Data Adapter" };
+  return { id, name, value, change, note, status, dataQuality, isTradable: isTradableQuality(dataQuality), source: "Market Data Adapter", timestamp: Date.now() };
 }
 
 function quote(symbol, price, preMarketChange, relativeVolume = 1, extra = {}) {
@@ -170,6 +172,8 @@ function quote(symbol, price, preMarketChange, relativeVolume = 1, extra = {}) {
     name,
     sector,
     price,
+    value: price,
+    change: preMarketChange,
     preMarketChange,
     preMarketChangePercent: preMarketChange,
     regularMarketChangePercent: extra.regularMarketChangePercent ?? preMarketChange,
@@ -178,9 +182,11 @@ function quote(symbol, price, preMarketChange, relativeVolume = 1, extra = {}) {
     volume: extra.volume ?? 0,
     averageVolume: extra.averageVolume ?? 0,
     dataStatus: extra.dataStatus || "SNAPSHOT",
+    status: normalizeDataQuality(extra.dataStatus || "SNAPSHOT"),
     dataQuality: normalizeDataQuality(extra.dataStatus || "SNAPSHOT"),
     isTradable: isTradableQuality(normalizeDataQuality(extra.dataStatus || "SNAPSHOT")),
-    source: "Market Data Adapter"
+    source: extra.source || "Market Data Adapter",
+    timestamp: extra.timestamp || Date.now()
   };
 }
 
@@ -226,7 +232,7 @@ async function fetchWithFallback(symbol) {
     if (stooq) return { ...stooq, dataStatus: "DELAYED" };
   } catch {}
   try {
-    const alpha = await fetchAlphaDemo(symbol);
+    const alpha = await fetchAlphaVantageQuote(symbol);
     if (alpha) return { ...alpha, dataStatus: "DELAYED" };
   } catch {}
   try {
@@ -253,9 +259,14 @@ function twelveDataSymbol(symbol = "") {
     "^NDX": "NDX",
     "^TNX": "TNX",
     "DX-Y.NYB": "DXY",
+    GOLD: "XAU/USD",
     "GC=F": "XAU/USD"
   };
   return map[symbol] || symbol;
+}
+
+function responseCodeFromError(error) {
+  return String(error?.message || "").match(/upstream\s+(\d+)/)?.[1] || "fetch-error";
 }
 
 function normalizeProviderQuote(symbol, payload, provider, dataStatus = "DELAYED") {
@@ -263,16 +274,24 @@ function normalizeProviderQuote(symbol, payload, provider, dataStatus = "DELAYED
   const previous = Number(payload?.previous ?? payload?.pc ?? payload?.previous_close);
   if (!Number.isFinite(price) || price <= 0) return null;
   const change = Number(payload?.changePercent ?? payload?.dp ?? payload?.percent_change ?? (Number.isFinite(previous) && previous > 0 ? ((price - previous) / previous) * 100 : 0));
-  return {
+  const normalized = {
     symbol,
+    value: price,
     price,
     change,
+    status: normalizeDataQuality(dataStatus),
+    dataQuality: normalizeDataQuality(dataStatus),
     regularChange: change,
     volume: Number(payload?.volume || payload?.v || 0),
     averageVolume: 0,
     dataStatus,
-    provider
+    source: provider,
+    provider,
+    timestamp: payload?.t ? Number(payload.t) * 1000 : payload?.timestamp ? Number(payload.timestamp) * 1000 : Date.now()
   };
+  if (provider === "Finnhub") lastGoodFinnhubQuotes.set(symbol, normalized);
+  if (provider === "TwelveData") lastGoodTwelveDataQuotes.set(symbol, normalized);
+  return normalized;
 }
 
 async function loadFinnhubMarketData(symbols) {
@@ -280,11 +299,17 @@ async function loadFinnhubMarketData(symbols) {
   if (!token) return { data: [], status: "unavailable", label: "Finnhub", error: "FINNHUB_API_KEY is not configured" };
   const list = cleanSymbols(symbols).split(",").filter(Boolean);
   const rows = await Promise.all(list.map(async (symbol) => {
+    const endpoint = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(finnhubSymbol(symbol))}&token=***`;
     try {
+      const startedAt = Date.now();
       const payload = await fetchJson(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(finnhubSymbol(symbol))}&token=${encodeURIComponent(token)}`, { timeoutMs: 8000 });
-      return normalizeProviderQuote(symbol, payload, "Finnhub", "LIVE");
-    } catch {
-      return null;
+      console.log("[snapshot:finnhub] fetch success", { symbol, endpoint, responseCode: 200, latencyMs: Date.now() - startedAt });
+      const normalized = normalizeProviderQuote(symbol, payload, "Finnhub", "LIVE");
+      if (!normalized) console.log("[snapshot:finnhub] fetch fail", { symbol, endpoint, responseCode: 200, reason: "empty-price" });
+      return normalized;
+    } catch (error) {
+      console.log("[snapshot:finnhub] fetch fail", { symbol, endpoint, responseCode: responseCodeFromError(error), reason: error.message });
+      return lastGoodFinnhubQuotes.get(symbol) || null;
     }
   }));
   const data = rows.filter(Boolean);
@@ -298,16 +323,34 @@ async function loadTwelveDataMarketData(symbols) {
   if (!token) return { data: [], status: "unavailable", label: "TwelveData", error: "TWELVEDATA_API_KEY is not configured" };
   const originalSymbols = cleanSymbols(symbols).split(",").filter(Boolean);
   const providerSymbols = originalSymbols.map(twelveDataSymbol);
-  const payload = await fetchJson(`https://api.twelvedata.com/quote?symbol=${encodeURIComponent(providerSymbols.join(","))}&apikey=${encodeURIComponent(token)}`, { timeoutMs: 10000 });
-  const isBatch = originalSymbols.length > 1;
-  const data = originalSymbols.map((symbol, index) => {
-    const row = isBatch ? payload[providerSymbols[index]] : payload;
-    if (!row || row.status === "error" || row.code) return null;
-    return normalizeProviderQuote(symbol, row, "TwelveData", "DELAYED");
-  }).filter(Boolean);
+  const rows = await Promise.all(originalSymbols.map(async (symbol, index) => {
+    const provider = providerSymbols[index];
+    const endpoint = `https://api.twelvedata.com/price?symbol=${encodeURIComponent(provider)}&apikey=***`;
+    try {
+      const startedAt = Date.now();
+      const pricePayload = await fetchJson(`https://api.twelvedata.com/price?symbol=${encodeURIComponent(provider)}&apikey=${encodeURIComponent(token)}`, { timeoutMs: 9000 });
+      console.log("[snapshot:twelvedata] fetch success", { symbol, providerSymbol: provider, endpoint, responseCode: 200, latencyMs: Date.now() - startedAt });
+      const price = Number(pricePayload?.price);
+      if (!Number.isFinite(price) || price <= 0) {
+        console.log("[snapshot:twelvedata] fetch fail", { symbol, providerSymbol: provider, endpoint, responseCode: 200, reason: pricePayload?.message || "empty-price" });
+        return lastGoodTwelveDataQuotes.get(symbol) || null;
+      }
+      let quotePayload = {};
+      try {
+        quotePayload = await fetchJson(`https://api.twelvedata.com/quote?symbol=${encodeURIComponent(provider)}&apikey=${encodeURIComponent(token)}`, { timeoutMs: 9000 });
+      } catch (error) {
+        console.log("[snapshot:twelvedata] quote detail fail", { symbol, providerSymbol: provider, responseCode: responseCodeFromError(error), reason: error.message });
+      }
+      return normalizeProviderQuote(symbol, { ...quotePayload, price, close: price }, "TwelveData", "DELAYED");
+    } catch (error) {
+      console.log("[snapshot:twelvedata] fetch fail", { symbol, providerSymbol: provider, endpoint, responseCode: responseCodeFromError(error), reason: error.message });
+      return lastGoodTwelveDataQuotes.get(symbol) || null;
+    }
+  }));
+  const data = rows.filter(Boolean);
   return data.length
     ? { data, status: "delayed", label: "TwelveData" }
-    : { data: [], status: "unavailable", label: "TwelveData", error: "TwelveData returned no usable quotes" };
+    : { data: [], status: "delayed", label: "TwelveData", error: "TwelveData returned no usable quotes" };
 }
 
 async function loadFinnhubQuotes(symbols) {
@@ -352,14 +395,32 @@ async function fetchStooqQuote(symbol) {
   return { symbol, price, change: ((price - prev) / prev) * 100, regularChange: ((price - prev) / prev) * 100, volume: Number(volume) || 0, averageVolume: Number(volume) || 0 };
 }
 
-async function fetchAlphaDemo(symbol) {
-  if (!/^[A-Z.]+$/.test(symbol)) return null;
-  const payload = await fetchJson(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${symbol}&apikey=demo`, { timeoutMs: 7000 });
+async function fetchAlphaVantageQuote(symbol) {
+  const token = process.env.ALPHAVANTAGE_API_KEY || "demo";
+  if (symbol === "GC=F") {
+    const payload = await fetchJson(`https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=XAU&to_currency=USD&apikey=${encodeURIComponent(token)}`, { timeoutMs: 7000 });
+    const row = payload["Realtime Currency Exchange Rate"];
+    const price = Number(row?.["5. Exchange Rate"]);
+    if (!Number.isFinite(price) || price <= 0) return null;
+    return { symbol, price, change: 0, regularChange: 0, volume: 0, averageVolume: 0, dataStatus: "DELAYED", provider: "AlphaVantage" };
+  }
+  if (symbol === "^TNX") {
+    const payload = await fetchJson(`https://www.alphavantage.co/query?function=TREASURY_YIELD&interval=daily&maturity=10year&apikey=${encodeURIComponent(token)}`, { timeoutMs: 7000 });
+    const latest = Array.isArray(payload.data) ? payload.data.find((item) => Number.isFinite(Number(item.value))) : null;
+    const previous = Array.isArray(payload.data) ? payload.data.find((item) => item !== latest && Number.isFinite(Number(item.value))) : null;
+    const price = Number(latest?.value);
+    const prev = Number(previous?.value);
+    if (!Number.isFinite(price) || price <= 0) return null;
+    return { symbol, price, change: Number.isFinite(prev) && prev > 0 ? ((price - prev) / prev) * 100 : 0, regularChange: 0, volume: 0, averageVolume: 0, dataStatus: "DELAYED", provider: "AlphaVantage" };
+  }
+  const alphaSymbol = symbol === "DX-Y.NYB" ? "DXY" : symbol.replace(/^\^/, "");
+  if (!/^[A-Z.]+$/.test(alphaSymbol)) return null;
+  const payload = await fetchJson(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(alphaSymbol)}&apikey=${encodeURIComponent(token)}`, { timeoutMs: 7000 });
   const row = payload["Global Quote"];
   const price = Number(row?.["05. price"]);
   const changeRaw = String(row?.["10. change percent"] || "").replace("%", "");
   if (!Number.isFinite(price) || price <= 0) return null;
-  return { symbol, price, change: Number(changeRaw) || 0, regularChange: Number(changeRaw) || 0, volume: Number(row?.["06. volume"]) || 0, averageVolume: 0 };
+  return { symbol, price, change: Number(changeRaw) || 0, regularChange: Number(changeRaw) || 0, volume: Number(row?.["06. volume"]) || 0, averageVolume: 0, dataStatus: "DELAYED", provider: "AlphaVantage" };
 }
 
 function stooqSymbol(symbol) {
@@ -914,8 +975,8 @@ export async function buildSnapshot(req) {
       return { data, status: data.length ? "live" : "unavailable", label: "Finnhub" };
     }, generatedAt, []),
     settleSource("twelveData", async () => {
-      const data = await loadTwelveDataQuotes(marketSymbols);
-      return { data, status: data.length ? "delayed" : "unavailable", label: "TwelveData" };
+      const loaded = await loadTwelveDataMarketData(marketSymbols);
+      return { data: loaded.data || [], status: loaded.status || "delayed", label: "TwelveData" };
     }, generatedAt, []),
     settleSource("tradingView", loadTradingView, generatedAt, []),
     settleSource("finnhubInsider", () => loadFinnhubInsider(symbols), generatedAt, [], "Finnhub Insider"),
