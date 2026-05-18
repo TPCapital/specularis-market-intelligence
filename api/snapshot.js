@@ -768,6 +768,53 @@ function normalizeNewsFeed(rawItems = [], provider = "NEWS") {
   }).slice(0, 12);
 }
 
+function buildEarningsNewsEvents(earningsRows = []) {
+  const items = (earningsRows || []).slice(0, 20).map((row, index) => {
+    const symbol = String(row.symbol || "").toUpperCase();
+    if (!symbol) return null;
+    const epsA = Number(row.epsActual);
+    const epsE = Number(row.epsEstimate);
+    const beat = Number.isFinite(epsA) && Number.isFinite(epsE) && epsA >= epsE;
+    return {
+      ticker: symbol,
+      sector: symbolMeta[symbol]?.[1] || "美股",
+      category: "财报",
+      newsType: beat ? "earnings beat" : "earnings miss",
+      bias: beat ? "BULLISH" : "BEARISH",
+      title: `${symbol}｜${beat ? "财报预期偏强" : "财报预期承压"}`,
+      summary: beat ? "利好｜财报预期改善，关注开盘确认。" : "利空｜财报预期偏弱，注意波动风险。",
+      originalTitle: `${symbol} earnings calendar update`,
+      originalSummary: `EPS actual ${Number.isFinite(epsA) ? epsA : "n/a"} vs estimate ${Number.isFinite(epsE) ? epsE : "n/a"}`,
+      time: row.date || new Date(Date.now() - index * 60000).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }),
+      provider: "Finnhub Earnings"
+    };
+  }).filter(Boolean);
+  return items;
+}
+
+function buildInsiderNewsEvents(insiderRows = []) {
+  const items = (insiderRows || []).slice(0, 20).map((row, index) => {
+    const symbol = String(row.symbol || "").toUpperCase();
+    if (!symbol) return null;
+    const change = Number(row.change || 0);
+    const bullish = change > 0;
+    return {
+      ticker: symbol,
+      sector: symbolMeta[symbol]?.[1] || "美股",
+      category: "内部人",
+      newsType: bullish ? "insider buy" : "insider sell",
+      bias: bullish ? "BULLISH" : "BEARISH",
+      title: `${symbol}｜内部人交易信号更新`,
+      summary: bullish ? "利好｜内部人净增持，关注资金延续。" : "利空｜内部人减持增加，注意高位回撤。",
+      originalTitle: `${symbol} insider transactions update`,
+      originalSummary: `Change ${change}`,
+      time: row.transactionDate || new Date(Date.now() - index * 60000).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }),
+      provider: "Finnhub Insider"
+    };
+  }).filter(Boolean);
+  return items;
+}
+
 async function loadBenzingaNews() {
   const key = process.env.BENZINGA_API_KEY;
   if (!key) {
@@ -992,7 +1039,7 @@ function stripXml(value) {
 
 function analyzeNews(news) {
   if (!news?.title || news.title.toLowerCase().includes("market update") || news.title.length < 15 || String(news.summary || "").length < 10) return null;
-  const junkPattern = /(is .* a buy|top \d+ stocks|etf to buy|could be huge|millionaire maker|prediction|week ahead|opinion|motley fool|worth buying|best stocks to buy)/i;
+  const junkPattern = /(is .* a buy|top \d+ stocks|etf to buy|could be huge|millionaire maker|prediction|week ahead|opinion|motley fool|worth buying|best stocks to buy|ai stock opinion|investment advice|forecast 20\d{2}|should you buy)/i;
   if (junkPattern.test(`${news.title} ${news.summary || ""}`)) return null;
   const ticker = news.relatedSymbol || extractTicker(news);
   const type = detectNewsType(news);
@@ -1292,9 +1339,13 @@ export async function buildSnapshot(req) {
   ]);
 
   const quotes = yahoo.data?.quotes?.length ? yahoo.data.quotes : snapshotQuotes;
+  const finnhubEarningsNews = source("finnhubEarnings", buildEarningsNewsEvents(earnings.data || []), (earnings.data || []).length ? "delayed" : "unavailable", generatedAt, "Finnhub Earnings");
+  const finnhubInsiderNews = source("finnhubInsider", buildInsiderNewsEvents(insider.data || []), (insider.data || []).length ? "delayed" : "unavailable", generatedAt, "Finnhub Insider");
   const newsCandidates = [
     { name: "benzinga", source: benzingaNews },
     { name: "finnhub", source: finnhubNews },
+    { name: "finnhub_earnings", source: finnhubEarningsNews },
+    { name: "finnhub_insider", source: finnhubInsiderNews },
     { name: "marketwatch", source: marketWatchNews },
     { name: "reuters", source: reutersNews },
     { name: "sec", source: secNews }
@@ -1376,7 +1427,7 @@ export async function buildSnapshot(req) {
       newsCatalyst: {
         topSource: selectedNewsSource ? selectedNewsSource.name : "none",
         total: news.length,
-        status: selectedNewsSource ? (selectedNewsSource.source.status || "delayed") : "unavailable",
+        status: selectedNewsSource ? (selectedNewsSource.source.status || "delayed") : "no_realtime_news",
         error: selectedNewsSource ? null : "no_realtime_news"
       },
       tradeSignals: signalEngine,
