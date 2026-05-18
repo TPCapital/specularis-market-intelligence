@@ -235,6 +235,7 @@ function source(key, data, status, generatedAt, label = sourceCatalog[key], extr
     updatedAt,
     timestamp: nowIso(updatedAt),
     latency: Number.isFinite(Number(extra.latency)) ? Number(extra.latency) : null,
+    error: extra.error || null,
     confidence,
     freshness: extra.freshness || freshnessFromUpdatedAt(updatedAt, dataQuality),
     fallback
@@ -295,6 +296,7 @@ async function settleSource(key, loader, generatedAt, fallbackData = null, label
         label || loaded.label || sourceCatalog[key],
         {
           latency: loaded.latency,
+          error: loaded.error,
           confidence: loaded.confidence,
           freshness: loaded.freshness,
           fallback: loaded.fallback,
@@ -309,7 +311,9 @@ async function settleSource(key, loader, generatedAt, fallbackData = null, label
       stack: error?.stack || null
     });
     if (lastGoodSources[key]) return cachedSource(key, lastGoodSources[key]);
-    return fallbackSource(key, fallbackData);
+    const fallback = fallbackSource(key, fallbackData);
+    fallback.error = error?.message || String(error);
+    return fallback;
   }
 }
 
@@ -357,7 +361,10 @@ function responseCodeFromError(error) {
 }
 
 async function fetchJsonWithDebug(sourceName, url, options = {}) {
-  console.log(`${SOURCE_DEBUG_PREFIX} FETCHING ${sourceName}:`, url);
+  const safeUrl = String(url)
+    .replace(/([?&](?:token|apikey|api_key)=)[^&]+/gi, "$1***")
+    .replace(/(Authorization:\s*Bearer\s+)[^\s]+/gi, "$1***");
+  console.log(`${SOURCE_DEBUG_PREFIX} FETCHING ${sourceName}:`, safeUrl);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs || 10000);
   try {
@@ -374,6 +381,7 @@ async function fetchJsonWithDebug(sourceName, url, options = {}) {
     });
     console.log(`${SOURCE_DEBUG_PREFIX} ${sourceName} RESPONSE STATUS:`, response.status);
     const text = await response.text();
+    console.log(`${SOURCE_DEBUG_PREFIX} ${sourceName} RESPONSE BODY(300):`, String(text || "").slice(0, 300));
     let data = null;
     try {
       data = text ? JSON.parse(text) : null;
@@ -383,9 +391,26 @@ async function fetchJsonWithDebug(sourceName, url, options = {}) {
     console.log(`${SOURCE_DEBUG_PREFIX} ${sourceName} JSON:`, data);
     if (!response.ok) throw new Error(`upstream ${response.status}`);
     return data;
+  } catch (error) {
+    console.error(`${SOURCE_DEBUG_PREFIX} ${sourceName} ERROR:`, error?.message || String(error));
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function classifyUpstreamError(error, responseCode = "") {
+  const code = String(responseCode || responseCodeFromError(error) || "").toLowerCase();
+  const message = String(error?.message || "").toLowerCase();
+  if (message.includes("aborted") || message.includes("timeout")) return "timeout";
+  if (code === "401") return "401";
+  if (code === "403") return "403";
+  if (code === "429") return "429";
+  if (message.includes("finnhub_api_key is not configured")) return "missing_key";
+  if (message.includes("missing_key")) return "missing_key";
+  if (message.includes("invalid") || message.includes("no usable quotes") || message.includes("empty-price")) return "invalid_response";
+  if (message.includes("upstream")) return code || "invalid_response";
+  return "invalid_response";
 }
 
 function normalizeProviderQuote(symbol, payload, provider, dataStatus = "DELAYED") {
@@ -416,11 +441,12 @@ function normalizeProviderQuote(symbol, payload, provider, dataStatus = "DELAYED
 async function loadFinnhubMarketData(symbols) {
   const token = process.env.FINNHUB_API_KEY;
   console.log("FINNHUB KEY EXISTS:", !!token);
-  if (!token) return { data: [], status: "unavailable", label: "Finnhub", error: "FINNHUB_API_KEY is not configured" };
+  if (!token) return { data: [], status: "unavailable", label: "Finnhub", error: "missing_key", confidence: "LOW", fallback: true };
   const requested = cleanSymbols(symbols).split(",").filter(Boolean);
   const priority = ["AAPL", "SPY", "QQQ", "NVDA"];
   const list = [...new Set([...priority, ...requested])];
   const latencies = [];
+  let lastErrorCode = "";
   const rows = await Promise.all(list.map(async (symbol) => {
     const endpoint = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(finnhubSymbol(symbol))}&token=***`;
     try {
@@ -431,17 +457,23 @@ async function loadFinnhubMarketData(symbols) {
       console.log("[snapshot:finnhub] fetch success", { symbol, endpoint, responseCode: 200, latencyMs });
       if (payload?.error) throw new Error(payload.error);
       const normalized = normalizeProviderQuote(symbol, payload, "Finnhub", "LIVE");
-      if (!normalized) console.log("[snapshot:finnhub] fetch fail", { symbol, endpoint, responseCode: 200, reason: "empty-price" });
+      if (!normalized) {
+        console.log("[snapshot:finnhub] fetch fail", { symbol, endpoint, responseCode: 200, reason: "empty-price" });
+        lastErrorCode = "invalid_response";
+      }
       return normalized;
     } catch (error) {
-      console.error("FINNHUB ERROR:", { symbol, endpoint, responseCode: responseCodeFromError(error), reason: error.message });
+      const responseCode = responseCodeFromError(error);
+      const classified = classifyUpstreamError(error, responseCode);
+      lastErrorCode = classified;
+      console.error("FINNHUB ERROR:", { symbol, endpoint, responseCode, reason: error.message, classified });
       return lastGoodFinnhubQuotes.get(symbol) || null;
     }
   }));
   const data = rows.filter(Boolean);
   return data.length
     ? { data, status: "live", label: "Finnhub", latency: latencies.length ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : null, confidence: "HIGH", fallback: false }
-    : { data: [], status: "unavailable", label: "Finnhub", error: "Finnhub returned no usable quotes" };
+    : { data: [], status: "unavailable", label: "Finnhub", error: lastErrorCode || "invalid_response", confidence: "LOW", fallback: true };
 }
 
 async function loadTwelveDataMarketData(symbols) {
@@ -1136,12 +1168,10 @@ export async function buildSnapshot(req) {
   const marketSymbols = `${Object.values(MARKET_SYMBOLS).join(",")},${symbols}`;
   const [finnhub, twelveData, tradingView, insider, earnings, alphaMacro, fredMacro] = await Promise.all([
     settleSource("finnhub", async () => {
-      const data = await loadFinnhubQuotes(marketSymbols);
-      return { data, status: data.length ? "live" : "unavailable", label: "Finnhub" };
+      return loadFinnhubMarketData(marketSymbols);
     }, generatedAt, []),
     settleSource("twelveData", async () => {
-      const loaded = await loadTwelveDataMarketData(marketSymbols);
-      return { data: loaded.data || [], status: loaded.status || "delayed", label: "TwelveData" };
+      return loadTwelveDataMarketData(marketSymbols);
     }, generatedAt, []),
     settleSource("tradingView", loadTradingView, generatedAt, []),
     settleSource("finnhubInsider", () => loadFinnhubInsider(symbols), generatedAt, [], "Finnhub Insider"),
