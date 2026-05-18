@@ -209,6 +209,10 @@ function source(key, data, status, generatedAt, label = sourceCatalog[key], extr
     timestamp: nowIso(updatedAt),
     latency: Number.isFinite(Number(extra.latency)) ? Number(extra.latency) : null,
     error: extra.error || null,
+    provider: extra.provider || null,
+    indices: Array.isArray(extra.indices) ? extra.indices : undefined,
+    quotes: Array.isArray(extra.quotes) ? extra.quotes : undefined,
+    participatesInScoring: typeof extra.participatesInScoring === "boolean" ? extra.participatesInScoring : undefined,
     confidence,
     freshness: extra.freshness || freshnessFromUpdatedAt(updatedAt, dataQuality),
     fallback
@@ -270,6 +274,10 @@ async function settleSource(key, loader, generatedAt, fallbackData = null, label
         {
           latency: loaded.latency,
           error: loaded.error,
+          provider: loaded.provider,
+          indices: loaded.indices,
+          quotes: loaded.quotes,
+          participatesInScoring: loaded.participatesInScoring,
           confidence: loaded.confidence,
           freshness: loaded.freshness,
           fallback: loaded.fallback,
@@ -451,7 +459,7 @@ async function loadFinnhubStrictProbe() {
   console.log("FINNHUB_API_KEY_EXISTS:", !!token);
   if (!token) {
     return {
-      status: "UNAVAILABLE",
+      status: "unavailable",
       source: "Finnhub",
       error: "missing_key",
       testSymbols,
@@ -525,7 +533,7 @@ async function loadFinnhubStrictProbe() {
 
   if (quotes.length) {
     return {
-      status: "LIVE",
+      status: "live",
       source: "Finnhub",
       error: null,
       testSymbols,
@@ -537,7 +545,7 @@ async function loadFinnhubStrictProbe() {
   }
 
   return {
-    status: "UNAVAILABLE",
+    status: "unavailable",
     source: "Finnhub",
     error: finalError || "invalid_response",
     testSymbols,
@@ -552,9 +560,7 @@ async function loadTwelveDataMarketData(symbols) {
   const token = envValue("TWELVEDATA_API_KEY");
   console.log("TWELVEDATA_API_KEY_EXISTS:", !!token);
   if (!token) return { data: [], status: "unavailable", label: "TwelveData", error: "TWELVEDATA_API_KEY is not configured" };
-  const requested = cleanSymbols(symbols).split(",").filter(Boolean);
-  const priority = ["SPY", "QQQ", "^VIX", "DX-Y.NYB", "GC=F"];
-  const originalSymbols = [...new Set([...priority, ...requested])];
+  const originalSymbols = ["SPY", "QQQ", "^VIX", "DX-Y.NYB", "GC=F"];
   const providerSymbols = originalSymbols.map(twelveDataSymbol);
   const latencies = [];
   const rows = await Promise.all(originalSymbols.map(async (symbol, index) => {
@@ -997,29 +1003,7 @@ async function loadFinnhubNews(symbols) {
 }
 
 async function loadFinnhubInsider(symbols) {
-  const token = envValue("FINNHUB_API_KEY");
-  if (!token) return { data: [], status: "unavailable", label: "Finnhub Insider", error: "FINNHUB_API_KEY is not configured" };
-  const tickers = cleanSymbols(symbols).split(",").filter((symbol) => symbolMeta[symbol]).slice(0, 12);
-  const rows = await Promise.all(tickers.map(async (symbol) => {
-    try {
-      const payload = await fetchJson(`https://finnhub.io/api/v1/stock/insider-transactions?symbol=${encodeURIComponent(symbol)}&token=${encodeURIComponent(token)}`, { timeoutMs: 9000 });
-      const tx = (payload.data || []).slice(0, 3).map((item) => ({
-        symbol,
-        name: item.name,
-        share: Number(item.share || 0),
-        change: Number(item.change || 0),
-        transactionCode: item.transactionCode,
-        transactionDate: item.transactionDate
-      }));
-      return tx;
-    } catch {
-      return [];
-    }
-  }));
-  const data = rows.flat();
-  return data.length
-    ? { data, status: "delayed", label: "Finnhub Insider" }
-    : { data: [], status: "unavailable", label: "Finnhub Insider", error: "Finnhub insider unavailable" };
+  return { data: [], status: "unavailable", label: "Finnhub Insider", error: "disabled_to_avoid_rate_limit", confidence: "LOW", fallback: true };
 }
 
 async function loadFinnhubEarnings(symbols) {
@@ -1398,7 +1382,7 @@ export async function buildSnapshot(req) {
   }), generatedAt, { events: [] }, "Earnings Layer");
   const insiderLayer = await settleSource("insider", () => buildInsiderLayer({
     symbols,
-    finnhubKey: envValue("FINNHUB_API_KEY")
+    finnhubKey: ""
   }), generatedAt, { signals: [] }, "Insider Layer");
   const marketData = await settleSource("marketData", () => loadMarketData(symbols, {
     finnhub: finnhubProbe.quotes || [],
@@ -1499,7 +1483,7 @@ export async function buildSnapshot(req) {
     layers: {
       realtimeQuotes: {
         sourcePriority: ["Finnhub", "TwelveData", "Fallback Cache"],
-        confidence: finnhubProbe.status === "LIVE" || twelveData.status === "delayed" ? "中高" : "低",
+        confidence: finnhubProbe.status === "live" || twelveData.status === "delayed" ? "中高" : "低",
         freshness: nowIso(generatedAt)
       },
       marketStructure: marketBreadthLayer.data || marketBreadthData,

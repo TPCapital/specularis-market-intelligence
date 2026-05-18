@@ -1,5 +1,5 @@
 window.DASHBOARD_CONFIG = {
-  refreshSeconds: 60,
+  refreshSeconds: 300,
 
   // Vercel Hobby-compatible architecture: snapshot is the only public API.
   endpoints: {

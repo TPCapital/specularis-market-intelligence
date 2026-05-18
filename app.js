@@ -1,5 +1,5 @@
 const CONFIG = window.DASHBOARD_CONFIG || {};
-const REFRESH_SECONDS = CONFIG.refreshSeconds || 90;
+const REFRESH_SECONDS = CONFIG.refreshSeconds || 300;
 const CACHE_PREFIX = "ai-us-equity-dashboard:";
 const FALLBACK_SNAPSHOT_LABEL = "快照数据（SNAPSHOT）";
 const CACHE_TRADABLE_MS = 15 * 60 * 1000;

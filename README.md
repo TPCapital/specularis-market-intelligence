@@ -4,7 +4,7 @@
 
 ## 数据诚信规则
 
-- 前端每 60 秒刷新一次，并在页面打开时主动请求 `/api/snapshot?ts=Date.now()`。
+- 前端每 5 分钟刷新一次，并在页面打开时主动请求 `/api/snapshot?ts=Date.now()`。
 - `vercel.json` 当前不配置定时任务，适配 Vercel Hobby 免费版；刷新主要由页面请求触发。
 - `/api/snapshot` 使用 `no-store` 响应头，避免 Vercel 或浏览器复用旧快照。
 - Dashboard 统一区分 `LIVE`、`DELAYED`、`SNAPSHOT`、`STALE`、`UNAVAILABLE`。每个模块都会显示数据状态与最后真实更新时间，页面刷新时间不等于数据更新时间。
@@ -131,7 +131,7 @@ Vercel 设置建议：
 
 ```js
 window.DASHBOARD_CONFIG = {
-  refreshSeconds: 60,
+  refreshSeconds: 300,
   endpoints: {
     snapshot: "/api/snapshot"
   }
