@@ -475,8 +475,14 @@ function buildDashboard(sources) {
   const premarketMomentum = normalizePremarketMomentum(sources.premarketMomentum?.data?.leaders || [], sources.premarketMomentum);
   const optionsForScoring = scoreEligible.options ? options : [];
   const retailForScoring = scoreEligible.retail ? retail : {};
+  const marketBreadth = sources.marketBreadth?.data || {};
+  const strategyFlows = flowsForScoring.length ? flowsForScoring : deriveStrategyFlows(premarketMomentum, stars, marketBreadth);
   const risk = indicesForScoring.length
-    ? calculateRiskRegime(indicesForScoring, sources.sentiment, retailForScoring)
+    ? calculateRiskRegime(indicesForScoring, sources.sentiment, retailForScoring, {
+        breadth: marketBreadth,
+        momentum: premarketMomentum,
+        tradingView: stars
+      })
     : {
         score: null,
         mode: "数据不足",
@@ -488,16 +494,20 @@ function buildDashboard(sources) {
         inputs: [["SPY", "不可用"], ["QQQ", "不可用"], ["VIX", "不可用"], ["可信度", "低"]]
       };
   const opportunities = calculatePremarketOpportunities(quotesForScoring, {
-    flows: flowsForScoring,
+    flows: strategyFlows,
     news: newsForScoring,
     retail: retailForScoring,
     risk,
     indices: indicesForScoring,
     options: optionsForScoring
   });
-  const tradePlan = buildPremarketTradePlan(opportunities, flowsForScoring, risk, optionsForScoring);
-  const [strategy, strategyContext] = strategyFrom(risk, flowsForScoring, retailForScoring, optionsForScoring);
-  const strategyBasis = statusGroup([sources.finviz, sources.unusualWhales, sources.benzinga]);
+  const tradePlan = buildPremarketTradePlan(opportunities, strategyFlows, risk, optionsForScoring, premarketMomentum);
+  const [strategy, strategyContext] = strategyFrom(risk, strategyFlows, retailForScoring, optionsForScoring, {
+    momentum: premarketMomentum,
+    breadth: marketBreadth,
+    tradingView: stars
+  });
+  const strategyBasis = statusGroup([sources.marketData, sources.premarketMomentum, sources.marketBreadth, sources.tradingView]);
   const sourceBasis = statusGroup(Object.values(sources).filter((source) => source?.status));
 
   return {
@@ -543,13 +553,13 @@ function buildDashboard(sources) {
     opportunities,
     premarketMomentum,
     tradePlan,
-    scannerStatus: buildScannerStatus(opportunities, flows, risk),
+    scannerStatus: buildScannerStatus(opportunities, flows.length ? flows : strategyFlows, risk, premarketMomentum),
     flows,
     movers,
     stars,
     news: normalizeNews(newsItems),
     risk,
-    marketSummary: marketSummary(marketIndices),
+    marketSummary: marketSummary(marketIndices, risk, marketBreadth, premarketMomentum),
     strategy,
     strategyContext: `${dataBasisLabel(strategyBasis)}。数据可靠性 ${reliability.score} (${reliability.grade})。${strategyContext}`,
     dataReliability: reliability,
@@ -567,14 +577,18 @@ function latestDataTimestamp(sources) {
 function sanitizeIndices(indices = [], marketSource = {}) {
   const fallbackById = new Map(fallback.marketData.indices.map((item) => [item.id, item]));
   const byId = new Map((indices || []).map((item) => [item.id, item]));
-  return fallback.marketData.indices.map((fallbackMetric) => {
-    const live = byId.get(fallbackMetric.id);
+  const orderedIds = ["SPY", "QQQ", "NDX", "VIX", "TNX", "DXY", "GOLD"];
+  const dynamicIds = [...new Set([...orderedIds, ...byId.keys(), ...fallbackById.keys()])];
+  return dynamicIds.map((id) => {
+    const fallbackMetric = fallbackById.get(id) || { id, name: id, value: null, change: 0, note: "" };
+    const live = byId.get(id);
     const value = Number(live?.value);
     if (!Number.isFinite(value) || value <= 0) {
+      if (!fallbackById.has(id)) return null;
       return {
         ...fallbackMetric,
-        value: fallbackById.get(fallbackMetric.id)?.value || fallbackMetric.value,
-        change: fallbackById.get(fallbackMetric.id)?.change ?? fallbackMetric.change,
+        value: fallbackMetric.value,
+        change: fallbackMetric.change,
         dataQuality: "snapshot",
         source: "Fallback Snapshot",
         updatedAt: null,
@@ -587,7 +601,7 @@ function sanitizeIndices(indices = [], marketSource = {}) {
       ...item,
       note: item.isTradable ? item.note : "快照数据（SNAPSHOT）：低置信度代理输入，用于维持方向判断。"
     };
-  });
+  }).filter(Boolean);
 }
 
 function sourceModeLabel(sources) {
@@ -1120,31 +1134,71 @@ function buildPremarketTradePlan(opportunities, flows, risk, options) {
   };
 }
 
-function buildScannerStatus(opportunities, flows, risk) {
-  const rvLeader = [...opportunities].filter((item) => item.symbol && item.symbol !== "--").sort((a, b) => b.relativeVolume - a.relativeVolume)[0];
+function deriveStrategyFlows(momentum = [], stars = [], breadth = {}) {
+  const grouped = new Map();
+  for (const item of momentum || []) {
+    if (!item?.sector) continue;
+    if (!grouped.has(item.sector)) grouped.set(item.sector, []);
+    grouped.get(item.sector).push(item);
+  }
+  const momentumFlows = [...grouped.entries()].map(([sector, items]) => ({
+    sector,
+    score: clamp(Math.round(avg(items.map((item) => item.momentumScore || 0)))),
+    change: avg(items.map((item) => item.premarketPercent || 0)),
+    summary: `${items.slice(0, 3).map((item) => item.symbol).join(" / ")} 盘前动能领先。`,
+    dataQuality: "delayed",
+    isTradable: true
+  })).sort((a, b) => b.score - a.score);
+  if (momentumFlows.length) return momentumFlows.slice(0, 6);
+
+  const breadthSectors = (breadth.strongestSectors || []).map((sector, index) => ({
+    sector: typeof sector === "string" ? sector : sector.sector || sector.name,
+    score: Number(sector.score || 75 - index * 4),
+    change: Number(sector.change || 0),
+    summary: "来自市场宽度引擎的板块强弱判断。",
+    dataQuality: "delayed",
+    isTradable: true
+  })).filter((item) => item.sector);
+  if (breadthSectors.length) return breadthSectors.slice(0, 6);
+
+  return (stars || []).slice(0, 6).map((item) => ({
+    sector: item.sector || "动量股",
+    score: Number(item.score || 60),
+    change: Number(item.change || 0),
+    summary: `${item.symbol} TradingView 动量领先。`,
+    dataQuality: item.dataQuality || "delayed",
+    isTradable: true
+  }));
+}
+
+function buildScannerStatus(opportunities, flows, risk, momentum = []) {
+  const rvLeader = [...(momentum || []), ...opportunities].filter((item) => item.symbol && item.symbol !== "--").sort((a, b) => b.relativeVolume - a.relativeVolume)[0];
   const strongest = flows[0];
-  const momentum = opportunities.filter((item) => item.score >= 65).length;
+  const momentumCount = (momentum || []).length || opportunities.filter((item) => item.score >= 65).length;
   const confirmed = opportunities.filter((item) => item.openingConfirmation === "CONFIRMED").length;
   return {
     rvLeader: rvLeader ? `相对成交量龙头 ${rvLeader.symbol} ${rvLeader.relativeVolume.toFixed(2)}x` : "相对成交量龙头 --",
     strongestSector: strongest ? `最强板块 ${strongest.sector}` : "最强板块 --",
     riskAppetite: `风险偏好 ${displayRiskMode(risk.mode)} · 置信度 ${risk.confidence || "低"}`,
-    premarketMomentum: `盘前动量 ${momentum} 个观察名单`,
+    premarketMomentum: `盘前动量 ${momentumCount} 个观察名单`,
     openingBias: confirmed ? `开盘倾向 ${confirmed} 个已确认` : "开盘倾向 仅早盘观察"
   };
 }
 
-function marketSummary(indices) {
+function marketSummary(indices, risk = {}, breadth = {}, momentum = []) {
   const byId = Object.fromEntries(indices.map((item) => [item.id, item]));
   if (![byId.SPY, byId.QQQ].some((item) => item?.value)) return "行情源为空，等待下一次刷新。";
   if (![byId.SPY, byId.QQQ].some((item) => item?.isTradable)) return "当前基于代理推断与延迟数据生成，方向置信度较低。";
+  const leader = momentum[0]?.symbol;
+  const breadthScore = Number(breadth.breadthScore || 0);
+  const breadthPhrase = breadthScore ? `市场宽度 ${breadthScore}` : "市场宽度待确认";
   const techLead = (byId.QQQ?.change || 0) > (byId.SPY?.change || 0);
   const ratesPressure = (byId.TNX?.change || 0) > 0.5;
   const volRelief = (byId.VIX?.change || 0) < 0;
-  if (techLead && volRelief && !ratesPressure) return "QQQ 强于 SPY 且 VIX 回落，科技风险偏好占优。";
-  if (techLead && ratesPressure) return "科技强于大盘，但美债收益率上行限制追高空间。";
-  if (!volRelief) return "波动率抬升压制风险资产，开盘优先观察防御需求。";
-  return "宽基指数温和修复，风险偏好中性偏多。";
+  if (techLead && volRelief && !ratesPressure) return `QQQ 强于 SPY 且 VIX 回落，${breadthPhrase}${leader ? `，动能龙头 ${leader}` : ""}。`;
+  if (techLead && ratesPressure) return `科技强于大盘，但美债收益率上行限制追高空间，${breadthPhrase}。`;
+  if (!volRelief) return `VIX 未有效回落，${displayRiskMode(risk.mode)} 下优先观察开盘承接。`;
+  return `SPY ${signed(byId.SPY?.change || 0)}，QQQ ${signed(byId.QQQ?.change || 0)}，风险偏好 ${displayRiskMode(risk.mode)}。`;
 }
 
 function durability(live, change) {
@@ -1161,7 +1215,7 @@ function riskConfidence(nonTradableCore, core = []) {
   return "低";
 }
 
-function calculateRiskRegime(indices, sentiment, retail) {
+function calculateRiskRegime(indices, sentiment, retail, context = {}) {
   const byId = Object.fromEntries(indices.map((item) => [item.id, item]));
   const core = [byId.SPY, byId.QQQ, byId.VIX];
   const usableCore = core.filter((item) => item && Number.isFinite(Number(item.value)) && Number(item.value) > 0);
@@ -1183,6 +1237,11 @@ function calculateRiskRegime(indices, sentiment, retail) {
   const vix = byId.VIX?.change || 0;
   const dxy = byId.DXY?.change || 0;
   const tnx = byId.TNX?.change || 0;
+  const spy = byId.SPY?.change || 0;
+  const breadthScore = Number(context.breadth?.breadthScore || 50);
+  const breadthBoost = Number.isFinite(breadthScore) ? (breadthScore - 50) * 0.16 : 0;
+  const momentumLeaders = (context.momentum || []).filter((item) => Number(item.momentumScore || 0) >= 65).slice(0, 3).map((item) => item.symbol);
+  const strongestSector = (context.breadth?.strongestSectors || [])[0]?.sector || (context.breadth?.strongestSectors || [])[0] || context.momentum?.[0]?.sector || "科技";
   if (qqq > 0 && vix < 0 && dxy <= 0.15 && Math.abs(tnx) < 1.2) {
     return {
       score: 72,
@@ -1190,9 +1249,9 @@ function calculateRiskRegime(indices, sentiment, retail) {
       confidence: riskConfidence(nonTradableCore, core),
       dataQuality: nonTradableCore === 0 ? "live" : "proxy",
       tradable: true,
-      reason: nonTradableCore === 0 ? "QQQ 上行、VIX 回落，美元与利率压力可控。" : "实时性不足，基于代理推断与延迟数据生成。",
-      conclusion: "科技风险偏好增强，AI 半导体继续主导市场，谨慎追高，回踩优先。",
-      inputs: [["VIX", signed(vix)], ["Fear & Greed", fearGreed], ["TNX", signed(tnx)], ["QQQ", signed(qqq)]]
+      reason: `SPY ${signed(spy)}，QQQ ${signed(qqq)}，VIX ${signed(vix)}，${strongestSector} 领先。`,
+      conclusion: `科技风险偏好增强，${strongestSector}继续主导市场${momentumLeaders.length ? `，动能龙头 ${momentumLeaders.join(" / ")}` : ""}，谨慎追高，回踩优先。`,
+      inputs: [["SPY", signed(spy)], ["QQQ", signed(qqq)], ["VIX", signed(vix)], ["宽度", Math.round(breadthScore)]]
     };
   }
   if (vix > 0 && dxy > 0 && tnx > 0 && qqq < 0) {
@@ -1202,15 +1261,14 @@ function calculateRiskRegime(indices, sentiment, retail) {
       confidence: riskConfidence(nonTradableCore, core),
       dataQuality: nonTradableCore === 0 ? "live" : "proxy",
       tradable: true,
-      reason: nonTradableCore === 0 ? "VIX、DXY、TNX 上行且 QQQ 走弱。" : "实时性不足，基于代理推断与延迟数据生成。",
-      conclusion: "VIX、DXY 与 TNX 同步施压，降低高 beta 暴露，等待风险释放。",
-      inputs: [["VIX", signed(vix)], ["Fear & Greed", fearGreed], ["TNX", signed(tnx)], ["QQQ", signed(qqq)]]
+      reason: `SPY ${signed(spy)}，QQQ ${signed(qqq)}，VIX ${signed(vix)}，DXY 与 TNX 同步施压。`,
+      conclusion: "风险规避升温，降低高 beta 暴露，等待 VIX 回落与纳指转强。",
+      inputs: [["SPY", signed(spy)], ["QQQ", signed(qqq)], ["VIX", signed(vix)], ["TNX", signed(tnx)]]
     };
   }
   let score = 50;
 
-  score += (byId.SPX?.change || 0) * 5.5;
-  score += (byId.SPY?.change || 0) * 5.5;
+  score += spy * 5.5;
   score += (byId.QQQ?.change || 0) * 7.5;
   score += (byId.NDX?.change || 0) * 8.5;
   score -= (byId.VIX?.change || 0) * 3.2;
@@ -1218,6 +1276,8 @@ function calculateRiskRegime(indices, sentiment, retail) {
   score -= Math.max(0, byId.DXY?.change || 0) * 1.3;
   score += (fearGreed - 50) * 0.3;
   score += ((retail.score || 50) - 50) * 0.15;
+  score += breadthBoost;
+  score += Math.min(momentumLeaders.length, 3) * 2.5;
 
   const bounded = clamp(Math.round(score));
   return {
@@ -1226,18 +1286,18 @@ function calculateRiskRegime(indices, sentiment, retail) {
     confidence: riskConfidence(nonTradableCore, core),
     dataQuality: nonTradableCore === 0 ? "delayed" : "proxy",
     tradable: true,
-    reason: nonTradableCore === 0 ? "核心指数可用但信号未完全共振。" : "当前基于代理推断与延迟数据生成。",
+    reason: `SPY ${signed(spy)}，QQQ ${signed(qqq)}，VIX ${signed(vix)}，市场宽度 ${Math.round(breadthScore)}。`,
     conclusion:
       bounded >= 56
-        ? "纳指强于大盘、VIX 回落，盘前风险偏好处于进攻区。"
+        ? `${strongestSector}与纳指动能支撑风险偏好，盘前处于进攻区。`
         : bounded <= 44
           ? "波动率与利率压力抬升，市场进入防御交易。"
-          : "风险信号分化，等待开盘后资金方向确认。",
+          : `风险信号分化，${momentumLeaders.length ? `关注 ${momentumLeaders.join(" / ")} 开盘确认。` : "等待开盘后资金方向确认。"}`,
     inputs: [
+      ["SPY", signed(spy)],
+      ["QQQ", signed(qqq)],
       ["VIX", signed(byId.VIX?.change || 0)],
-      ["Fear & Greed", fearGreed],
-      ["TNX", signed(byId.TNX?.change || 0)],
-      ["QQQ", signed(byId.QQQ?.change || byId.NDX?.change || 0)]
+      ["宽度", Math.round(breadthScore)]
     ]
   };
 }
@@ -1251,14 +1311,20 @@ function sentimentVerdict(sentiment, retail) {
   return ["可进攻但控仓", "乐观未极端，适合顺势但不适合重仓追价。"];
 }
 
-function strategyFrom(risk, flows, retail, options) {
+function strategyFrom(risk, flows, retail, options, context = {}) {
   if (!risk.tradable) {
     return ["数据不足，等待下一次刷新。", "行情源完全为空时不生成方向性策略。"];
   }
   const leader = flows[0]?.sector || "科技";
+  const topMomentum = (context.momentum || []).slice(0, 3).map((item) => item.symbol).filter(Boolean);
+  const breadthScore = Number(context.breadth?.breadthScore || 0);
+  const breadthText = breadthScore ? `市场宽度 ${Math.round(breadthScore)}` : "市场宽度待确认";
   const callBias = options.filter((item) => String(item.type).toLowerCase().includes("call")).length;
-  if (risk.mode === "Risk-On" && callBias >= 2) {
-    return [`科技风险偏好增强，${leader}继续主导市场，谨慎追高，回踩优先。`, "热钱与期权资金同向时顺势，非主线只做低吸。"];
+  if (risk.mode === "Risk-On") {
+    return [
+      `科技风险偏好增强，${leader}继续主导市场，谨慎追高，回踩优先。`,
+      `${breadthText}${topMomentum.length ? `，盘前动能关注 ${topMomentum.join(" / ")}` : ""}。${callBias >= 2 ? "期权代理与热钱方向同向。" : "等待期权代理与开盘量能确认。"}`
+    ];
   }
   if (risk.mode === "Risk-Off") {
     return ["风险偏好转弱，降低高 beta 暴露，等待 VIX 回落与纳指转强。", "防御、现金与事件驱动优先于追涨交易。"];
