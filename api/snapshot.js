@@ -772,7 +772,7 @@ function mergeMarketQuotes({ symbols, marketEntries, finnhubRows = [], twelveDat
       return { ...metric(id, MARKET_INDEX_META[id] || id, null, null, "SNAPSHOT：source_failed，等待下一次指数源刷新。", "SNAPSHOT"), fallback: true, error: "source_failed" };
     }
     const baseName = fallback?.name || MARKET_INDEX_META[id] || id;
-    return metric(id, baseName, row.price ?? fallback?.value ?? null, row.change ?? fallback?.change ?? null, `${row.dataStatus}：${row.provider || "行情适配器"}。`, row.dataStatus);
+    return metric(id, baseName, row.price ?? fallback?.value ?? null, row.change ?? fallback?.change ?? null, `${row.dataStatus} · ${row.provider || "行情适配器"}。`, row.dataStatus);
   });
 
   // Stock priority: Finnhub -> TwelveData -> TradingView -> Stooq/Alpha -> cached snapshot
@@ -1541,9 +1541,10 @@ function calculateRiskRegime(indices) {
   const vix = byId.VIX?.change || 0;
   const dxy = byId.DXY?.change || 0;
   const tnx = byId.TNX?.change || 0;
+  const gold = byId.GOLD?.change || 0;
   if (qqq > 0 && vix < 0 && dxy <= 0.15 && Math.abs(tnx) < 1.2) return { mode: "Risk-On", score: 72 };
   if (vix > 0 && dxy > 0 && tnx > 0 && qqq < 0) return { mode: "Risk-Off", score: 34 };
-  const score = clamp(Math.round(50 + qqq * 10 - vix * 4 - Math.max(0, dxy) * 4 - Math.max(0, tnx) * 2));
+  const score = clamp(Math.round(50 + qqq * 10 - vix * 4 - Math.max(0, dxy) * 4 - Math.max(0, tnx) * 2 - Math.max(0, gold) * 1.2));
   return { mode: score >= 56 ? "Risk-On" : score <= 44 ? "Risk-Off" : "Neutral", score };
 }
 
@@ -1663,8 +1664,8 @@ export async function buildSnapshot(req) {
       scanner: premarketScanner,
       breadth: marketBreadthLayer.data || marketBreadthData,
       risk: riskRegime,
-      earnings: earningsLayer.data?.events || [],
-      insider: insiderLayer.data?.signals || [],
+      earnings: [],
+      insider: [],
       relativeVolume: relativeVolumeLayer.data?.leaders || []
     });
   } catch (error) {
