@@ -1570,22 +1570,32 @@ export async function buildSnapshot(req) {
     status: marketData.status === "live" ? "live" : marketData.status === "delayed" ? "delayed" : "stale"
   });
   const marketBreadthLayer = await settleSource("marketBreadth", async () => marketBreadthData, generatedAt, {}, "Market Breadth Engine");
-  const premarketScanner = runPremarketScanner({
-    quotes,
-    news,
-    earnings: earningsLayer.data?.events || [],
-    insider: insiderLayer.data?.signals || [],
-    relativeVolume: relativeVolumeLayer.data?.leaders || []
-  });
-  const signalEngine = buildSignalEngine({
-    indices: marketData.data?.indices || [],
-    scanner: premarketScanner,
-    breadth: marketBreadthLayer.data || marketBreadthData,
-    risk: riskRegime,
-    earnings: earningsLayer.data?.events || [],
-    insider: insiderLayer.data?.signals || [],
-    relativeVolume: relativeVolumeLayer.data?.leaders || []
-  });
+  let premarketScanner = [];
+  try {
+    premarketScanner = runPremarketScanner({
+      quotes,
+      news,
+      earnings: earningsLayer.data?.events || [],
+      insider: insiderLayer.data?.signals || [],
+      relativeVolume: relativeVolumeLayer.data?.leaders || []
+    });
+  } catch (error) {
+    console.error("[SNAPSHOT ENGINE ERROR] premarketScanner", error?.message || error);
+  }
+  let signalEngine = { regime: "UNAVAILABLE", riskAppetite: null, error: "not_generated" };
+  try {
+    signalEngine = buildSignalEngine({
+      indices: marketData.data?.indices || [],
+      scanner: premarketScanner,
+      breadth: marketBreadthLayer.data || marketBreadthData,
+      risk: riskRegime,
+      earnings: earningsLayer.data?.events || [],
+      insider: insiderLayer.data?.signals || [],
+      relativeVolume: relativeVolumeLayer.data?.leaders || []
+    });
+  } catch (error) {
+    console.error("[SNAPSHOT ENGINE ERROR] signalEngine", error?.message || error);
+  }
 
   const finviz = keepLastGood("finviz", source("finviz", sectorData, sectorData.length ? "delayed" : "unavailable", generatedAt, "Sector Heat Proxy", {
     error: sectorData.length ? null : "source_data_unavailable"
@@ -1614,36 +1624,85 @@ export async function buildSnapshot(req) {
     confidence: aggregateNewsConfidence,
     fallback: !selectedNewsSource
   });
-  const confidenceScore = buildConfidenceScore({
-    marketData: normalizedMarketDataSource,
-    premarketMomentum: premarketMomentumLayer,
-    marketBreadth: marketBreadthLayer,
-    tradingView,
-    relativeVolume: relativeVolumeLayer,
-    newsAggregator
-  });
-  const marketRegime = buildMarketRegime({
-    marketData: normalizedMarketDataSource,
-    premarketMomentum: premarketMomentumLayer,
-    marketBreadth: marketBreadthLayer,
-    tradingView
-  });
-  const watchlist = buildWatchlist({
-    premarketMomentum: premarketMomentumLayer,
-    marketRegime,
-    relativeVolume: relativeVolumeLayer
-  });
-  const strategySummary = buildStrategySummary({
-    marketRegime,
-    premarketMomentum: premarketMomentumLayer,
-    marketBreadth: marketBreadthLayer,
-    confidenceScore
-  });
-  const tradePlan = buildTradePlan({
-    marketRegime,
-    strategySummary,
-    watchlist
-  });
+  let confidenceScore = { dataConfidence: "LOW", signalConfidence: "LOW", tradeConfidence: "LOW", score: 0, detail: [] };
+  try {
+    confidenceScore = buildConfidenceScore({
+      marketData: normalizedMarketDataSource,
+      premarketMomentum: premarketMomentumLayer,
+      marketBreadth: marketBreadthLayer,
+      tradingView,
+      relativeVolume: relativeVolumeLayer,
+      newsAggregator
+    });
+  } catch (error) {
+    console.error("[SNAPSHOT ENGINE ERROR] confidenceScore", error?.message || error);
+  }
+  let marketRegime = {
+    type: riskRegime.mode === "Risk-On" ? "RISK_ON" : riskRegime.mode === "Risk-Off" ? "RISK_OFF" : "NEUTRAL",
+    score: riskRegime.score ?? null,
+    explanation: riskRegime.reason || "市场结构引擎暂不可用，保留基础风险判断。",
+    tradable: normalizedMarketDataSource.status === "live" || normalizedMarketDataSource.status === "delayed",
+    preferredStyle: "控仓观察"
+  };
+  try {
+    marketRegime = buildMarketRegime({
+      marketData: normalizedMarketDataSource,
+      premarketMomentum: premarketMomentumLayer,
+      marketBreadth: marketBreadthLayer,
+      tradingView
+    });
+  } catch (error) {
+    console.error("[SNAPSHOT ENGINE ERROR] marketRegime", error?.message || error);
+  }
+  let watchlist = { strong: [], watch: [], avoid: [] };
+  try {
+    watchlist = buildWatchlist({
+      premarketMomentum: premarketMomentumLayer,
+      marketRegime,
+      relativeVolume: relativeVolumeLayer
+    });
+  } catch (error) {
+    console.error("[SNAPSHOT ENGINE ERROR] watchlist", error?.message || error);
+  }
+  let strategySummary = {
+    regime: marketRegime.type || "NEUTRAL",
+    headline: "控仓观察",
+    summary: marketRegime.explanation || "市场数据可用，等待动能与宽度确认。",
+    bias: "NEUTRAL",
+    confidence: confidenceScore.tradeConfidence || "LOW",
+    reasons: [],
+    risks: [],
+    avoid: [],
+    focusSectors: [],
+    focusSymbols: []
+  };
+  try {
+    strategySummary = buildStrategySummary({
+      marketRegime,
+      premarketMomentum: premarketMomentumLayer,
+      marketBreadth: marketBreadthLayer,
+      confidenceScore
+    });
+  } catch (error) {
+    console.error("[SNAPSHOT ENGINE ERROR] strategySummary", error?.message || error);
+  }
+  let tradePlan = {
+    action: "控仓观察",
+    entryCondition: "等待开盘量价确认。",
+    invalidation: "若 QQQ 与市场宽度同步转弱，取消追涨。",
+    riskControl: "单笔风险控制在账户 1%-2%。",
+    targetStyle: "控仓观察",
+    avoidCondition: "避免无量高开。"
+  };
+  try {
+    tradePlan = buildTradePlan({
+      marketRegime,
+      strategySummary,
+      watchlist
+    });
+  } catch (error) {
+    console.error("[SNAPSHOT ENGINE ERROR] tradePlan", error?.message || error);
+  }
   const decisionEngine = source("decisionEngine", {
     strategySummary,
     marketRegime,
@@ -1658,6 +1717,27 @@ export async function buildSnapshot(req) {
   const snapshot = {
     generatedAt,
     envDebug: envDebug(),
+    marketData: normalizedMarketDataSource.data || { indices: normalizedMarketDataSource.indices || [], quotes: normalizedMarketDataSource.quotes || [], provider: normalizedMarketDataSource.provider },
+    summary: {
+      status: normalizedMarketDataSource.status,
+      provider: normalizedMarketDataSource.provider,
+      headline: strategySummary.headline,
+      strategy: strategySummary.summary,
+      riskMode: riskRegime.mode,
+      riskScore: riskRegime.score,
+      marketRegime: marketRegime.type,
+      confidence: confidenceScore.tradeConfidence,
+      updatedAt: generatedAt
+    },
+    indices: normalizedMarketDataSource.data?.indices || normalizedMarketDataSource.indices || [],
+    breadth: marketBreadthLayer.data || marketBreadthData || {},
+    sectors: sectorData,
+    premarket: {
+      movers: moverData,
+      momentum: premarketMomentumData,
+      scanner: premarketScanner
+    },
+    risk: riskRegime,
     riskRegime,
     strategySummary,
     marketRegime,
@@ -1721,6 +1801,7 @@ export async function buildSnapshot(req) {
         newsAggregator
     }
   };
+  console.log("[SNAPSHOT FINAL]", JSON.stringify(snapshot, null, 2));
   lastGoodSnapshot = snapshot;
   return snapshot;
 }
@@ -1752,6 +1833,28 @@ export default async function handler(req, res) {
       envDebug: envDebug(),
       servedFrom: "emergency-snapshot",
       error: error.message,
+      marketData: { indices: lastGoodIndices(), quotes: lastGoodQuotes(), provider: "Emergency Fallback" },
+      summary: {
+        status: "unavailable",
+        provider: "Emergency Fallback",
+        headline: "数据源异常",
+        strategy: "snapshot 构建失败，等待下一次刷新。",
+        riskMode: "DATA_UNAVAILABLE",
+        riskScore: null,
+        marketRegime: "UNAVAILABLE",
+        confidence: "LOW",
+        updatedAt: Date.now()
+      },
+      indices: lastGoodIndices(),
+      breadth: {},
+      sectors: [],
+      premarket: { movers: [], momentum: { leaders: [] }, scanner: [] },
+      risk: { mode: "DATA_UNAVAILABLE", score: null, reason: "snapshot_build_failed" },
+      strategySummary: null,
+      marketRegime: null,
+      tradePlan: null,
+      watchlist: { strong: [], watch: [], avoid: [] },
+      confidenceScore: { dataConfidence: "LOW", signalConfidence: "LOW", tradeConfidence: "LOW", score: 0 },
       sources: {
         finnhub: {
           status: "UNAVAILABLE",
