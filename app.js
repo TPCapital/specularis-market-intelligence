@@ -206,30 +206,23 @@ async function loadServerSnapshot() {
   if (!url) return null;
   const joiner = url.includes("?") ? "&" : "?";
   const json = await fetchJson(`${url}${joiner}ts=${Date.now()}`);
+  const marketData = json.marketData || json.sources?.marketData?.data || {};
+  const indices = marketData?.indices || json.indices || [];
+  const quotes = marketData?.quotes || json.quotes || [];
+  const summary = json.summary || {};
+  const strategySummary = json.strategySummary || null;
+  const marketRegime = json.marketRegime || null;
+  const tradePlan = json.tradePlan || null;
+  const watchlist = json.watchlist || null;
+  console.log("[FRONTEND SNAPSHOT]", json);
+  console.log("[FRONTEND MARKET DATA]", marketData);
+  console.log("[FRONTEND INDICES]", indices);
+  console.log("[FRONTEND QUOTES]", quotes);
   const sources = fallbackSources();
-  if (json.strategySummary || json.marketRegime || json.tradePlan || json.watchlist || json.confidenceScore) {
-    sources.decisionEngine = {
-      data: {
-        strategySummary: json.strategySummary,
-        marketRegime: json.marketRegime,
-        tradePlan: json.tradePlan,
-        watchlist: json.watchlist,
-        confidenceScore: json.confidenceScore
-      },
-      status: json.sources?.decisionEngine?.status || json.sources?.marketData?.status || "delayed",
-      label: sourceCatalog.decisionEngine,
-      source: sourceCatalog.decisionEngine,
-      updatedAt: Number(json.generatedAt || Date.now()),
-      timestamp: formatClock(Number(json.generatedAt || Date.now())),
-      latency: null,
-      confidence: json.confidenceScore?.tradeConfidence || "MEDIUM",
-      freshness: "current snapshot",
-      fallback: false
-    };
-  }
   for (const [key, value] of Object.entries(json.sources || {})) {
-    if (!sources[key] || !["live", "delayed", "proxy", "cached", "fallback", "snapshot", "unavailable"].includes(value?.status) || !hasSnapshotData(value.data)) continue;
-    const status = json.servedFrom === "last-success" || value.status === "cached" ? "cached" : value.status;
+    const normalizedStatus = normalizeDataQuality(value?.status);
+    if (!sources[key] || !["live", "delayed", "proxy", "cached", "snapshot", "unavailable"].includes(normalizedStatus) || !hasSnapshotData(value.data)) continue;
+    const status = json.servedFrom === "last-success" || normalizedStatus === "cached" ? "cached" : normalizedStatus;
     const dataQuality = normalizeDataQuality(status);
     const updatedAt = dataQuality === "snapshot"
       ? null
@@ -247,6 +240,92 @@ async function loadServerSnapshot() {
       fallback: Boolean(value.fallback ?? (["snapshot", "cached", "proxy"].includes(dataQuality)))
     };
     writeSourceCache(key, value.data, updatedAt, status);
+  }
+  const marketStatus = normalizeDataQuality(marketData.status || summary.status || json.sources?.marketData?.status || ((indices.length || quotes.length) ? "delayed" : "unavailable"));
+  if (indices.length || quotes.length || marketStatus === "live") {
+    const updatedAt = marketStatus === "snapshot" ? null : Number(marketData.updatedAt || summary.updatedAt || json.generatedAt || Date.now());
+    sources.marketData = {
+      data: {
+        ...marketData,
+        indices,
+        quotes,
+        provider: marketData.provider || summary.provider || json.sources?.marketData?.provider || "Multi-source Market Data"
+      },
+      status: marketStatus,
+      label: sourceCatalog.marketData,
+      source: marketData.source || json.sources?.marketData?.source || sourceCatalog.marketData,
+      updatedAt,
+      timestamp: ["live", "delayed", "proxy"].includes(marketStatus) ? formatClock(updatedAt) : marketStatus === "cached" ? `最后成功 ${formatDateTime(updatedAt)}` : "SNAPSHOT",
+      latency: Number.isFinite(Number(json.sources?.marketData?.latency)) ? Number(json.sources.marketData.latency) : null,
+      confidence: json.sources?.marketData?.confidence || confidenceLabelByStatus(marketStatus),
+      freshness: json.sources?.marketData?.freshness || freshnessLabel(updatedAt, marketStatus),
+      fallback: Boolean(json.sources?.marketData?.fallback ?? !["live", "delayed"].includes(marketStatus))
+    };
+    writeSourceCache("marketData", sources.marketData.data, updatedAt, marketStatus);
+  }
+  if (json.breadth) {
+    const status = normalizeDataQuality(json.breadth.status || json.sources?.marketBreadth?.status || marketStatus);
+    const updatedAt = Number(json.breadth.updatedAt || json.generatedAt || Date.now());
+    sources.marketBreadth = {
+      data: json.breadth,
+      status,
+      label: sourceCatalog.marketBreadth,
+      source: json.breadth.source || sourceCatalog.marketBreadth,
+      updatedAt,
+      timestamp: ["live", "delayed", "proxy"].includes(status) ? formatClock(updatedAt) : "SNAPSHOT",
+      latency: Number.isFinite(Number(json.breadth.latency)) ? Number(json.breadth.latency) : null,
+      confidence: json.breadth.confidence || confidenceLabelByStatus(status),
+      freshness: json.breadth.freshness || freshnessLabel(updatedAt, status),
+      fallback: Boolean(json.breadth.fallback)
+    };
+  }
+  if (json.premarket?.momentum) {
+    const status = normalizeDataQuality(json.premarket.momentum.status || json.sources?.premarketMomentum?.status || marketStatus);
+    const updatedAt = Number(json.premarket.momentum.updatedAt || json.generatedAt || Date.now());
+    sources.premarketMomentum = {
+      data: json.premarket.momentum,
+      status,
+      label: sourceCatalog.premarketMomentum,
+      source: json.premarket.momentum.source || sourceCatalog.premarketMomentum,
+      updatedAt,
+      timestamp: ["live", "delayed", "proxy"].includes(status) ? formatClock(updatedAt) : "SNAPSHOT",
+      latency: null,
+      confidence: json.premarket.momentum.confidence || confidenceLabelByStatus(status),
+      freshness: freshnessLabel(updatedAt, status),
+      fallback: Boolean(json.premarket.momentum.fallback)
+    };
+  }
+  if (strategySummary || marketRegime || tradePlan || watchlist || json.confidenceScore) {
+    const status = normalizeDataQuality(json.sources?.decisionEngine?.status || marketStatus || "delayed");
+    const updatedAt = Number(json.generatedAt || Date.now());
+    sources.decisionEngine = {
+      data: {
+        strategySummary,
+        marketRegime,
+        tradePlan,
+        watchlist,
+        confidenceScore: json.confidenceScore
+      },
+      status,
+      label: sourceCatalog.decisionEngine,
+      source: sourceCatalog.decisionEngine,
+      updatedAt,
+      timestamp: ["live", "delayed", "proxy"].includes(status) ? formatClock(updatedAt) : "SNAPSHOT",
+      latency: null,
+      confidence: json.confidenceScore?.tradeConfidence || confidenceLabelByStatus(status),
+      freshness: "current snapshot",
+      fallback: false
+    };
+  }
+  if (json.premarket?.movers || json.sources?.newsAggregator?.data?.news) {
+    const status = normalizeDataQuality(json.sources?.newsAggregator?.status || "delayed");
+    const updatedAt = Number(json.generatedAt || Date.now());
+    const data = {
+      movers: json.premarket?.movers || json.sources?.newsAggregator?.data?.movers || [],
+      news: json.sources?.newsAggregator?.data?.news || []
+    };
+    sources.newsAggregator = { ...sources.newsAggregator, data, status, updatedAt, timestamp: formatClock(updatedAt), confidence: confidenceLabelByStatus(status), fallback: false };
+    sources.benzinga = { ...sources.benzinga, data, status, updatedAt, timestamp: formatClock(updatedAt), confidence: confidenceLabelByStatus(status), fallback: false };
   }
   return sources;
 }
