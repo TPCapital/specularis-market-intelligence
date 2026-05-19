@@ -4,7 +4,7 @@ const CACHE_PREFIX = "ai-us-equity-dashboard:";
 const FALLBACK_SNAPSHOT_LABEL = "快照数据（SNAPSHOT）";
 const CACHE_TRADABLE_MS = 15 * 60 * 1000;
 const STATUS_WEIGHT = { live: 1, delayed: 0.75, proxy: 0.35, cached: 0.25, snapshot: 0, unavailable: 0 };
-const SOURCE_WEIGHT = { marketData: 0.42, premarketMomentum: 0.2, marketBreadth: 0.16, tradingView: 0.12, relativeVolume: 0.1 };
+const SOURCE_WEIGHT = { marketData: 0.46, premarketMomentum: 0.22, marketBreadth: 0.18, tradingView: 0.14 };
 
 const sourceCatalog = {
   finnhub: "Finnhub",
@@ -724,19 +724,7 @@ function sanitizeIndices(indices = [], marketSource = {}) {
     const live = byId.get(id);
     const value = Number(live?.value);
     if (!Number.isFinite(value) || value <= 0) {
-      if (!fallbackById.has(id)) {
-        return {
-          id,
-          name: id,
-          value: null,
-          change: 0,
-          dataQuality: "snapshot",
-          source: "Cached Snapshot",
-          updatedAt: null,
-          isTradable: false,
-          note: "快照数据（SNAPSHOT）：当前指数源暂不可用，不参与核心评分。"
-        };
-      }
+      if (!fallbackById.has(id)) return null;
       return {
         ...fallbackMetric,
         value: fallbackMetric.value,
@@ -1985,7 +1973,6 @@ function html(selector, value) {
 }
 
 function formatNumber(value) {
-  if (!Number.isFinite(Number(value)) || value === null || value === undefined) return "--";
   return Number(value || 0).toLocaleString("en-US", { maximumFractionDigits: Math.abs(value) >= 100 ? 2 : 3 });
 }
 
