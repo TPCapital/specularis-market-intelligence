@@ -1988,6 +1988,12 @@ function clamp(value, min = 0, max = 100) {
   return Math.max(min, Math.min(max, value));
 }
 
+function avg(values = []) {
+  const nums = values.map(Number).filter(Number.isFinite);
+  if (!nums.length) return 0;
+  return nums.reduce((sum, value) => sum + value, 0) / nums.length;
+}
+
 function changeClass(value, inverse = false) {
   const adjusted = inverse ? -value : value;
   if (adjusted > 0.05) return "up";
