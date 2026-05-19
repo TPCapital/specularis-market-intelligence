@@ -318,6 +318,20 @@ async function fetchWithFallback(symbol) {
   return null;
 }
 
+async function fetchIndexFallback(id, symbol) {
+  if (["NDX", "VIX", "TNX", "DXY", "GOLD"].includes(id)) {
+    const alphaSymbol = id === "GOLD" ? "GOLD" : id;
+    try {
+      const alpha = await fetchAlphaVantageQuote(alphaSymbol);
+      if (alpha) return { ...alpha, dataStatus: "DELAYED" };
+    } catch (error) {
+      console.error("[snapshot:index-fallback] AlphaVantage failed", { id, reason: error?.message || String(error) });
+    }
+    return null;
+  }
+  return fetchWithFallback(symbol);
+}
+
 function finnhubSymbol(symbol = "") {
   const map = {
     "^VIX": "VIX",
@@ -335,6 +349,10 @@ function twelveDataSymbol(symbol = "") {
     "^NDX": "NDX",
     "^TNX": "TNX",
     "DX-Y.NYB": "DXY",
+    NDX: "NDX",
+    VIX: "VIX",
+    TNX: "TNX",
+    DXY: "DXY",
     GOLD: "XAU/USD",
     "GC=F": "XAU/USD"
   };
@@ -568,7 +586,7 @@ async function loadTwelveDataMarketData(symbols) {
   const token = envValue("TWELVEDATA_API_KEY");
   console.log("TWELVEDATA_API_KEY_EXISTS:", !!token);
   if (!token) return { data: [], status: "unavailable", label: "TwelveData", error: "TWELVEDATA_API_KEY is not configured" };
-  const originalSymbols = ["SPY", "QQQ", "^VIX", "DX-Y.NYB", "GC=F"];
+  const originalSymbols = ["NDX", "VIX", "DXY", "GOLD"];
   const providerSymbols = originalSymbols.map(twelveDataSymbol);
   const latencies = [];
   const rows = await Promise.all(originalSymbols.map(async (symbol, index) => {
@@ -633,14 +651,14 @@ async function fetchStooqQuote(symbol) {
 async function fetchAlphaVantageQuote(symbol) {
   const token = envValue("ALPHAVANTAGE_API_KEY");
   if (!token) return null;
-  if (symbol === "GC=F") {
+  if (symbol === "GC=F" || symbol === "GOLD") {
     const payload = await fetchJson(`https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=XAU&to_currency=USD&apikey=${encodeURIComponent(token)}`, { timeoutMs: 7000 });
     const row = payload["Realtime Currency Exchange Rate"];
     const price = Number(row?.["5. Exchange Rate"]);
     if (!Number.isFinite(price) || price <= 0) return null;
     return { symbol, price, change: 0, regularChange: 0, volume: 0, averageVolume: 0, dataStatus: "DELAYED", provider: "AlphaVantage" };
   }
-  if (symbol === "^TNX") {
+  if (symbol === "^TNX" || symbol === "TNX") {
     const payload = await fetchJson(`https://www.alphavantage.co/query?function=TREASURY_YIELD&interval=daily&maturity=10year&apikey=${encodeURIComponent(token)}`, { timeoutMs: 7000 });
     const latest = Array.isArray(payload.data) ? payload.data.find((item) => Number.isFinite(Number(item.value))) : null;
     const previous = Array.isArray(payload.data) ? payload.data.find((item) => item !== latest && Number.isFinite(Number(item.value))) : null;
@@ -649,7 +667,7 @@ async function fetchAlphaVantageQuote(symbol) {
     if (!Number.isFinite(price) || price <= 0) return null;
     return { symbol, price, change: Number.isFinite(prev) && prev > 0 ? ((price - prev) / prev) * 100 : 0, regularChange: 0, volume: 0, averageVolume: 0, dataStatus: "DELAYED", provider: "AlphaVantage" };
   }
-  const alphaSymbol = symbol === "DX-Y.NYB" ? "DXY" : symbol.replace(/^\^/, "");
+  const alphaSymbol = symbol === "DX-Y.NYB" ? "DXY" : symbol === "GOLD" ? "XAUUSD" : symbol.replace(/^\^/, "");
   if (!/^[A-Z.]+$/.test(alphaSymbol)) return null;
   const payload = await fetchJson(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(alphaSymbol)}&apikey=${encodeURIComponent(token)}`, { timeoutMs: 7000 });
   const row = payload["Global Quote"];
@@ -684,22 +702,74 @@ function normalizeTradingViewQuote(item = {}) {
   };
 }
 
-function mergeMarketQuotes({ symbols, marketEntries, finnhubRows = [], twelveDataRows = [], tradingViewRows = [], fallbackMarketMap = new Map(), fallbackStockMap = new Map() }) {
+function fredMarketRows(fredRows = []) {
+  const dgs10 = (fredRows || []).find((item) => item.id === "DGS10");
+  const price = Number(dgs10?.value);
+  if (!Number.isFinite(price) || price <= 0) return [];
+  return [{
+    symbol: "^TNX",
+    price,
+    change: 0,
+    regularChange: 0,
+    volume: 0,
+    averageVolume: 0,
+    dataStatus: "DELAYED",
+    provider: "FRED"
+  }];
+}
+
+function alphaMacroMarketRows(alphaMacro = null) {
+  const dgs10 = Array.isArray(alphaMacro?.dgs10?.data)
+    ? alphaMacro.dgs10.data.find((item) => Number.isFinite(Number(item.value)))
+    : null;
+  const previous = Array.isArray(alphaMacro?.dgs10?.data)
+    ? alphaMacro.dgs10.data.find((item) => item !== dgs10 && Number.isFinite(Number(item.value)))
+    : null;
+  const price = Number(dgs10?.value);
+  const prev = Number(previous?.value);
+  if (!Number.isFinite(price) || price <= 0) return [];
+  return [{
+    symbol: "^TNX",
+    price,
+    change: Number.isFinite(prev) && prev > 0 ? ((price - prev) / prev) * 100 : 0,
+    regularChange: 0,
+    volume: 0,
+    averageVolume: 0,
+    dataStatus: "DELAYED",
+    provider: "AlphaVantage"
+  }];
+}
+
+function mergeMarketQuotes({ symbols, marketEntries, finnhubRows = [], twelveDataRows = [], tradingViewRows = [], fredRows = [], alphaMacro = null, fallbackMarketMap = new Map(), fallbackStockMap = new Map() }) {
   const staleIndices = lastGoodIndices();
   const staleQuotes = lastGoodQuotes();
   const snapshotById = new Map(staleIndices.map((item) => [item.id, item]));
   const snapshotBySymbol = new Map(staleQuotes.map((item) => [item.symbol, item]));
   const finnhubMap = new Map((finnhubRows || []).map((item) => [item.symbol, item]));
   const twelveMap = new Map((twelveDataRows || []).map((item) => [item.symbol, item]));
+  const fredMap = new Map(fredMarketRows(fredRows).map((item) => [item.symbol, item]));
+  const alphaMacroMap = new Map(alphaMacroMarketRows(alphaMacro).map((item) => [item.symbol, item]));
   const tradingViewMap = new Map((tradingViewRows || []).map((item) => [item.symbol, normalizeTradingViewQuote(item)]).filter(([, row]) => row));
 
-  // Index priority: TwelveData -> Finnhub -> Stooq/Alpha -> cached snapshot
+  // Index priority:
+  // SPY/QQQ: Finnhub remains untouched.
+  // NDX/VIX/DXY/GOLD: TwelveData -> Alpha/Stooq -> cached snapshot.
+  // TNX: FRED DGS10 -> AlphaVantage TREASURY_YIELD -> cached snapshot.
   const indices = marketEntries.map(([id, providerSymbol]) => {
     const fallback = snapshotById.get(id);
-    const row = finnhubMap.get(providerSymbol) || finnhubMap.get(id) || twelveMap.get(providerSymbol) || twelveMap.get(id) || fallbackMarketMap.get(id);
+    const indexRows = {
+      SPY: finnhubMap.get("SPY") || twelveMap.get("SPY") || fallbackMarketMap.get("SPY"),
+      QQQ: finnhubMap.get("QQQ") || twelveMap.get("QQQ") || fallbackMarketMap.get("QQQ"),
+      NDX: twelveMap.get("^NDX") || twelveMap.get("NDX") || fallbackMarketMap.get("NDX"),
+      VIX: twelveMap.get("^VIX") || twelveMap.get("VIX") || fallbackMarketMap.get("VIX"),
+      TNX: fredMap.get("^TNX") || alphaMacroMap.get("^TNX") || fallbackMarketMap.get("TNX"),
+      DXY: twelveMap.get("DX-Y.NYB") || twelveMap.get("DXY") || fallbackMarketMap.get("DXY"),
+      GOLD: twelveMap.get("GC=F") || twelveMap.get("GOLD") || fallbackMarketMap.get("GOLD")
+    };
+    const row = indexRows[id] || finnhubMap.get(providerSymbol) || finnhubMap.get(id) || twelveMap.get(providerSymbol) || twelveMap.get(id) || fallbackMarketMap.get(id);
     if (!row) {
       if (fallback) return { ...fallback, note: "STALE：实时行情源暂不可用，使用最近有效缓存。", status: "STALE", dataQuality: "stale", isTradable: false };
-      return metric(id, MARKET_INDEX_META[id] || id, null, null, "UNAVAILABLE：无可用指数数据。", "UNAVAILABLE");
+      return { ...metric(id, MARKET_INDEX_META[id] || id, null, null, "SNAPSHOT：source_failed，等待下一次指数源刷新。", "SNAPSHOT"), fallback: true, error: "source_failed" };
     }
     const baseName = fallback?.name || MARKET_INDEX_META[id] || id;
     return metric(id, baseName, row.price ?? fallback?.value ?? null, row.change ?? fallback?.change ?? null, `${row.dataStatus}：${row.provider || "行情适配器"}。`, row.dataStatus);
@@ -729,7 +799,7 @@ async function loadMarketData(rawSymbols, providerRows = {}) {
   const symbols = cleanSymbols(rawSymbols).split(",").filter(Boolean);
   const quoteSymbols = symbols.filter((item) => !Object.values(MARKET_SYMBOLS).includes(item) && !item.startsWith("^")).slice(0, 40);
   const [fallbackMarketRows, fallbackStockRows] = await Promise.all([
-    Promise.all(marketEntries.map(async ([id, symbol]) => [id, await fetchWithFallback(symbol)])),
+    Promise.all(marketEntries.map(async ([id, symbol]) => [id, await fetchIndexFallback(id, symbol)])),
     Promise.all(quoteSymbols.map((symbol) => fetchWithFallback(symbol).then((row) => [symbol, row]).catch(() => [symbol, null])))
   ]);
   const fallbackMarketMap = new Map(fallbackMarketRows.map(([id, row]) => [id, row]));
@@ -740,6 +810,8 @@ async function loadMarketData(rawSymbols, providerRows = {}) {
     finnhubRows: providerRows.finnhub || [],
     twelveDataRows: providerRows.twelveData || [],
     tradingViewRows: providerRows.tradingView || [],
+    fredRows: providerRows.fred || [],
+    alphaMacro: providerRows.alphaMacro || null,
     fallbackMarketMap,
     fallbackStockMap
   });
@@ -1509,7 +1581,9 @@ export async function buildSnapshot(req) {
   const marketData = await settleSource("marketData", () => loadMarketData(symbols, {
     finnhub: finnhubProbe.quotes || [],
     twelveData: twelveData.data || [],
-    tradingView: tradingView.data || []
+    tradingView: tradingView.data || [],
+    fred: fredMacro.data || [],
+    alphaMacro: alphaMacro.data || null
   }), generatedAt, { indices: lastGoodIndices(), quotes: lastGoodQuotes() });
   const [reddit, benzingaNews, finnhubNews, marketWatchNews, reutersNews, secNews] = await Promise.all([
     settleSource("reddit", loadReddit, generatedAt, { score: null, tone: "UNAVAILABLE", mentions: [], summary: "数据源不可用。" }),

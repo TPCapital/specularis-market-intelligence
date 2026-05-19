@@ -4,7 +4,7 @@ const CACHE_PREFIX = "ai-us-equity-dashboard:";
 const FALLBACK_SNAPSHOT_LABEL = "快照数据（SNAPSHOT）";
 const CACHE_TRADABLE_MS = 15 * 60 * 1000;
 const STATUS_WEIGHT = { live: 1, delayed: 0.75, proxy: 0.35, cached: 0.25, snapshot: 0, unavailable: 0 };
-const SOURCE_WEIGHT = { finnhub: 0.24, twelveData: 0.22, relativeVolume: 0.2, earnings: 0.17, marketBreadth: 0.17 };
+const SOURCE_WEIGHT = { marketData: 0.46, premarketMomentum: 0.22, marketBreadth: 0.18, tradingView: 0.14 };
 
 const sourceCatalog = {
   finnhub: "Finnhub",
@@ -610,7 +610,7 @@ function buildDashboard(sources) {
   const decision = sources.decisionEngine?.data || {};
   const strategyFlows = flowsForScoring.length ? flowsForScoring : deriveStrategyFlows(premarketMomentum, stars, marketBreadth);
   const calculatedRisk = indicesForScoring.length
-    ? calculateRiskRegime(indicesForScoring, sources.sentiment, retailForScoring, {
+    ? calculateRiskRegime(indicesForScoring, [], {}, {
         breadth: marketBreadth,
         momentum: premarketMomentum,
         tradingView: stars
