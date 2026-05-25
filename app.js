@@ -366,7 +366,16 @@ async function loadServerSnapshot() {
         quotes,
         provider: marketData.provider || summary.provider || json.sources?.marketData?.provider || "Multi-source Market Data",
         activeSource: activeMarketData.source,
-        cacheAdapter: activeMarketData.cacheAdapter
+        cacheAdapter: activeMarketData.cacheAdapter,
+        debugActiveMarketData: json.debugActiveMarketData || {
+          selectedSource: activeMarketData.source,
+          indicesCount: indices.length,
+          liveDelayedIndicesCount: activeMarketData.liveDelayedIndicesCount,
+          quotesCount: quotes.length,
+          liveDelayedQuotesCount: activeMarketData.liveDelayedQuotesCount,
+          provider: activeMarketData.provider,
+          cacheAdapter: activeMarketData.cacheAdapter || json.lastKnownGood?.adapter || "memory"
+        }
       },
       status: marketStatus,
       label: sourceCatalog.marketData,
@@ -823,7 +832,7 @@ function buildDashboard(sources) {
               failedSources: item.failedSources || []
             }))
           : [],
-        debugActiveMarketData: key === "marketData" ? json.debugActiveMarketData : null
+        debugActiveMarketData: key === "marketData" ? (value.debugActiveMarketData || null) : null
       })),
     moduleStatus: {
       risk: statusGroup([sources.marketData]),

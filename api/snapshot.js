@@ -769,6 +769,22 @@ function buildDebugActiveMarketData(snapshot = {}) {
   };
 }
 
+
+function isGoodSnapshotForCache(snapshot = {}) {
+  const currentMarketData = snapshot.sources?.marketData?.data || snapshot.marketData || { indices: snapshot.indices || [], quotes: snapshot.quotes || [] };
+  const stats = marketDataStats(currentMarketData);
+  const reliabilityScore = Number(snapshot.confidenceScore?.dataReliabilityScore ?? snapshot.dataReliability?.score ?? 0);
+  const marketStatus = normalizeDataQuality(snapshot.sources?.marketData?.status || snapshot.summary?.status);
+  const provider = String(snapshot.sources?.marketData?.provider || snapshot.summary?.provider || currentMarketData?.provider || "").toLowerCase();
+  const providerLooksStructural = /built-in|fallback|structure|structural/.test(provider);
+  const hasUsableIndices = stats.liveDelayedIndicesCount >= 2;
+  const hasUsableQuotes = stats.liveDelayedQuotesCount >= 3;
+  const marketStatusUsable = ["live", "delayed"].includes(marketStatus);
+  if (providerLooksStructural) return false;
+  if (!hasUsableIndices && !hasUsableQuotes && !marketStatusUsable && reliabilityScore < 40) return false;
+  return hasUsableIndices || hasUsableQuotes || marketStatusUsable || reliabilityScore >= 40;
+}
+
 function tradingViewIndexProxy(id, route, context = {}) {
   const stale = lastKnownGoodIndex(id);
   if (!stale) return null;
@@ -2634,8 +2650,42 @@ export async function buildSnapshot(req) {
     }
   };
   snapshot.debugActiveMarketData = buildDebugActiveMarketData(snapshot);
-  console.log("[SNAPSHOT FINAL]", JSON.stringify(snapshot, null, 2));
-  await cacheAdapter.write(LAST_KNOWN_GOOD_KEY, snapshot);
+  const goodForCache = isGoodSnapshotForCache(snapshot);
+  snapshot.cacheWriteStatus = {
+    attempted: true,
+    written: false,
+    reason: goodForCache ? "good_snapshot" : "rejected_low_quality_snapshot",
+    adapter: cacheAdapter.type
+  };
+  if (process.env.DEBUG_SNAPSHOT === "true") {
+    console.log("[SNAPSHOT FINAL]", JSON.stringify(snapshot, null, 2));
+  } else {
+    console.log("[SNAPSHOT SUMMARY]", {
+      generatedAt: snapshot.generatedAt,
+      provider: snapshot.summary?.provider,
+      status: snapshot.summary?.status,
+      indices: snapshot.indices?.length || 0,
+      quotes: snapshot.marketData?.quotes?.length || 0,
+      cacheAdapter: cacheAdapter.type,
+      cacheWriteReason: snapshot.cacheWriteStatus.reason
+    });
+  }
+  if (goodForCache) {
+    snapshot.cacheWriteStatus.written = await cacheAdapter.write(LAST_KNOWN_GOOD_KEY, snapshot);
+  } else {
+    const persistent = await cacheAdapter.read();
+    if (persistent?.generatedAt) {
+      return {
+        ...persistent,
+        servedFrom: "last-known-good",
+        currentGenerationFailed: true,
+        currentSnapshotRejected: true,
+        rejectedSnapshotGeneratedAt: snapshot.generatedAt,
+        cacheAdapter: cacheAdapter.type,
+        cacheWriteStatus: snapshot.cacheWriteStatus
+      };
+    }
+  }
   return snapshot;
 }
 
