@@ -705,7 +705,7 @@ function buildDashboard(sources) {
   const risk = decision.marketRegime && indicesForScoring.length
     ? riskFromDecisionEngine(decision.marketRegime, decision.strategySummary, indicesForScoring, decision.confidenceScore)
     : calculatedRisk;
-  const opportunities = calculatePremarketOpportunities(quotesForScoring, {
+  const opportunityBuckets = calculatePremarketOpportunities(quotesForScoring, {
     flows: strategyFlows,
     news: newsForScoring,
     retail: retailForScoring,
@@ -713,6 +713,9 @@ function buildDashboard(sources) {
     indices: indicesForScoring,
     options: optionsForScoring
   });
+  const opportunities = opportunityBuckets.highConfidenceOpportunities;
+  const watchlistOnly = opportunityBuckets.watchlistOnly;
+  const starsWithWatchlist = mergeWatchlistIntoStars(stars, watchlistOnly);
   const generatedTradePlan = buildPremarketTradePlan(opportunities, strategyFlows, risk, optionsForScoring, premarketMomentum);
   const tradePlan = decision.tradePlan && indicesForScoring.length
     ? tradePlanFromDecision(decision.tradePlan, decision.watchlist)
@@ -744,7 +747,15 @@ function buildDashboard(sources) {
         latency: value.latency,
         freshness: value.freshness,
         confidence: value.confidence,
-        fallback: value.fallback
+        fallback: value.fallback,
+        indexDebug: key === "marketData"
+          ? (value.data?.indices || []).filter((item) => ["NDX", "VIX", "DXY"].includes(item.id)).map((item) => ({
+              id: item.id,
+              successfulSource: item.successfulSource || "未命中",
+              providerSymbol: item.providerSymbol || item.id,
+              failedSources: item.failedSources || []
+            }))
+          : []
       })),
     moduleStatus: {
       risk: statusGroup([sources.marketData]),
@@ -773,7 +784,7 @@ function buildDashboard(sources) {
     scannerStatus: buildScannerStatus(opportunities, flows.length ? flows : strategyFlows, risk, premarketMomentum),
     flows,
     movers,
-    stars,
+    stars: starsWithWatchlist,
     news: normalizeNews(newsItems),
     risk,
     marketSummary: marketSummary(marketIndices, risk, marketBreadth, premarketMomentum),
@@ -1213,7 +1224,26 @@ function normalizeNewsBias(bias = "NEUTRAL") {
 function calculatePremarketOpportunities(quotes, context) {
   const usableQuotes = (quotes || []).filter((item) => item?.symbol && isUsableForInference(item));
   if (!usableQuotes.length) {
-    return [{
+    return {
+      highConfidenceOpportunities: [emptyOpportunityCard()],
+      watchlistOnly: []
+    };
+  }
+  const preferred = usableQuotes.filter((item) => ["SPY", "QQQ", "NVDA", "AMD", "AVGO", "PLTR", "TSLA", "COIN", "MSTR", "MRVL", "MSFT", "META", "CRWD"].includes(item.symbol));
+  const candidates = preferred.length ? preferred : usableQuotes;
+  const scored = candidates
+    .map((stock) => calculatePremarketOpportunityScore(stock, context))
+    .sort((a, b) => b.score - a.score);
+  const highConfidenceOpportunities = scored.filter(isHighConfidenceOpportunity).slice(0, 8);
+  const watchlistOnly = scored.filter((item) => !isHighConfidenceOpportunity(item)).slice(0, 8);
+  return {
+    highConfidenceOpportunities: highConfidenceOpportunities.length ? highConfidenceOpportunities : [emptyOpportunityCard()],
+    watchlistOnly
+  };
+}
+
+function emptyOpportunityCard() {
+  return {
       symbol: "暂无高置信度机会",
       name: "等待盘前确认",
       sector: "等待盘前确认",
@@ -1228,14 +1258,13 @@ function calculatePremarketOpportunities(quotes, context) {
       relativeVolume: null,
       riskTags: ["等待盘前确认"],
       logic: "当前指数数据可用，但个股 RVOL / 盘前异动不足，等待盘前量能确认。"
-    }];
-  }
-  const preferred = usableQuotes.filter((item) => ["SPY", "QQQ", "NVDA", "AMD", "AVGO", "PLTR", "TSLA", "COIN", "MSTR", "MRVL", "MSFT", "META", "CRWD"].includes(item.symbol));
-  const candidates = preferred.length ? preferred : usableQuotes;
-  return candidates
-    .map((stock) => calculatePremarketOpportunityScore(stock, context))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 8);
+  };
+}
+
+function isHighConfidenceOpportunity(item) {
+  if (!item?.isTradable) return false;
+  if (!["live", "delayed"].includes(normalizeDataQuality(item.dataQuality))) return false;
+  return item.hasRealRelativeVolume || Math.abs(Number(item.premarketChange || 0)) >= 0.5 || Math.abs(Number(item.regularChange || 0)) >= 0.8;
 }
 
 function calculatePremarketOpportunityScore(stock, context) {
@@ -1278,12 +1307,32 @@ function calculatePremarketOpportunityScore(stock, context) {
     openingConfirmation,
     vwapBias,
     relativeVolume,
+    hasRealRelativeVolume,
+    premarketChange: gap,
+    regularChange,
     mentionCount,
     retailHeat,
     sectorMomentumScore,
     riskTags,
     logic: opportunityLogic(stock, signal, sectorMomentumScore, relativeVolume, catalyst)
   };
+}
+
+function mergeWatchlistIntoStars(stars = [], watchlistOnly = []) {
+  const watchStars = (watchlistOnly || []).filter((item) => item?.symbol && !item.symbol.includes("暂无")).map((item) => ({
+    symbol: item.symbol,
+    name: item.name || item.symbol,
+    sector: item.sector || "观察名单",
+    heat: Number(item.score || 55),
+    logic: `${displayTradeState(item.signal)}：${item.logic || "等待盘前确认。"}`,
+    persistence: "观察名单：需真实量能确认"
+  }));
+  const seen = new Set();
+  return [...watchStars, ...(stars || [])].filter((item) => {
+    if (!item?.symbol || seen.has(item.symbol)) return false;
+    seen.add(item.symbol);
+    return true;
+  }).slice(0, 8);
 }
 
 function opportunityConfidence(stock, hasRealRelativeVolume, score) {
@@ -1784,17 +1833,25 @@ function renderSources(items) {
     <article class="source-card quality-${escapeHtml(item.dataQuality || item.status)}">
       <span class="source-state ${item.status}">${statusLabel(item.status, item.key)}</span>
       <strong>${escapeHtml(item.label)}</strong>
-      <p>Source：${escapeHtml(item.source || item.label)}<br>Status：${escapeHtml(item.sourceStatus || statusLabel(item.status, item.key))}<br>发布：${escapeHtml(sourcePublishedLabel(item))}<br>抓取：${escapeHtml(sourceFetchedLabel(item))}<br>Latency：${escapeHtml(sourceLatencyLabel(item.latency))} · Freshness：${escapeHtml(item.freshness || sourceAgeLabel(item.updatedAt))}<br>Confidence：${escapeHtml(item.confidence || confidenceLabelByStatus(item.status))} · Fallback：${escapeHtml(item.fallback ? "YES" : "NO")}<br>参与评分：${escapeHtml(sourceScoringLabel(item))}</p>
+      <p>Source：${escapeHtml(item.source || item.label)}<br>Status：${escapeHtml(item.sourceStatus || statusLabel(item.status, item.key))}<br>发布：${escapeHtml(sourcePublishedLabel(item))}<br>抓取：${escapeHtml(sourceFetchedLabel(item))}<br>Latency：${escapeHtml(sourceLatencyLabel(item.latency))} · Freshness：${escapeHtml(item.freshness || sourceAgeLabel(item.updatedAt))}<br>Confidence：${escapeHtml(item.confidence || confidenceLabelByStatus(item.status))} · Fallback：${escapeHtml(item.fallback ? "YES" : "NO")}<br>参与评分：${escapeHtml(sourceScoringLabel(item))}${renderIndexDebug(item.indexDebug)}</p>
     </article>
   `).join(""));
 }
 
+function renderIndexDebug(indexDebug = []) {
+  if (!indexDebug?.length) return "";
+  return `<br>Index Route：${indexDebug.map((item) => {
+    const failed = (item.failedSources || []).map((fail) => `${fail.source}:${fail.providerSymbol}`).slice(0, 3).join(" / ");
+    return `${item.id}=${item.successfulSource}(${item.providerSymbol})${failed ? ` fail:${failed}` : ""}`;
+  }).join("；")}`;
+}
+
 function sourcePublishedLabel(item) {
-  return item.publishedAt ? formatDateTime(item.publishedAt) : item.updatedAt ? formatDateTime(item.updatedAt) : "--";
+  return item.publishedAt ? formatDateTime(item.publishedAt) : item.updatedAt ? formatDateTime(item.updatedAt) : "最近有效快照";
 }
 
 function sourceFetchedLabel(item) {
-  return item.fetchedAt ? formatDateTime(item.fetchedAt) : item.updatedAt ? formatDateTime(item.updatedAt) : "--";
+  return item.fetchedAt ? formatDateTime(item.fetchedAt) : item.updatedAt ? formatDateTime(item.updatedAt) : "数据恢复后自动更新";
 }
 
 function sourceLatencyLabel(latency) {
@@ -1805,11 +1862,11 @@ function sourceLatencyLabel(latency) {
 function sourceUpdatedLabel(item) {
   if (item.updatedAt) return formatDateTime(item.updatedAt);
   if (item.dataQuality === "snapshot") return "最新快照";
-  return item.timestamp || "--";
+  return item.timestamp || "最近有效快照";
 }
 
 function sourceAgeLabel(updatedAt) {
-  if (!updatedAt) return "age --";
+  if (!updatedAt) return "age pending";
   const minutes = Math.max(0, Math.round((Date.now() - updatedAt) / 60000));
   return `age ${minutes}m`;
 }

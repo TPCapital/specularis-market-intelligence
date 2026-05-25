@@ -172,6 +172,7 @@ const lastGoodFinnhubQuotes = new Map();
 const lastGoodTwelveDataQuotes = new Map();
 const SOURCE_DEBUG_PREFIX = "[snapshot:debug]";
 const LAST_KNOWN_GOOD_TTL_MS = 6 * 60 * 60 * 1000;
+const LAST_KNOWN_GOOD_KEY = "market-dashboard:lastKnownGood";
 const SOURCE_PLANS = {
   marketData: { primary: "Finnhub quotes", backups: ["TwelveData", "TradingView Screener", "AlphaVantage / Stooq", "lastKnownGood cache"] },
   movers: { primary: "News Aggregator movers", backups: ["marketData quotes", "Premarket Momentum Engine", "lastKnownGood cache"] },
@@ -189,6 +190,106 @@ const SOURCE_PLANS = {
 function envValue(name) {
   const value = process.env[name];
   return typeof value === "string" && value.length ? value : "";
+}
+
+const cacheAdapter = {
+  get type() {
+    if (envValue("UPSTASH_REDIS_REST_URL") && envValue("UPSTASH_REDIS_REST_TOKEN")) return "upstash";
+    if (envValue("SUPABASE_URL") && envValue("SUPABASE_SERVICE_ROLE_KEY")) return "supabase";
+    return "memory";
+  },
+  async read(key = LAST_KNOWN_GOOD_KEY) {
+    try {
+      if (this.type === "upstash") return readUpstashCache(key);
+      if (this.type === "supabase") return readSupabaseCache(key);
+      return lastGoodSnapshot;
+    } catch (error) {
+      console.error("[snapshot:cache] read failed", { adapter: this.type, reason: error?.message || String(error) });
+      return lastGoodSnapshot;
+    }
+  },
+  async write(key = LAST_KNOWN_GOOD_KEY, value) {
+    if (!value) return false;
+    lastGoodSnapshot = value;
+    lastGoodSources = value.sources || lastGoodSources || {};
+    try {
+      if (this.type === "upstash") return writeUpstashCache(key, value);
+      if (this.type === "supabase") return writeSupabaseCache(key, value);
+      return true;
+    } catch (error) {
+      console.error("[snapshot:cache] write failed", { adapter: this.type, reason: error?.message || String(error) });
+      return false;
+    }
+  }
+};
+
+async function readUpstashCache(key) {
+  const base = envValue("UPSTASH_REDIS_REST_URL").replace(/\/$/, "");
+  const token = envValue("UPSTASH_REDIS_REST_TOKEN");
+  const response = await fetch(`${base}/get/${encodeURIComponent(key)}`, {
+    cache: "no-store",
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!response.ok) throw new Error(`upstash_read_${response.status}`);
+  const payload = await response.json();
+  const raw = payload?.result;
+  return raw ? JSON.parse(raw) : null;
+}
+
+async function writeUpstashCache(key, value) {
+  const base = envValue("UPSTASH_REDIS_REST_URL").replace(/\/$/, "");
+  const token = envValue("UPSTASH_REDIS_REST_TOKEN");
+  const response = await fetch(`${base}/pipeline`, {
+    method: "POST",
+    cache: "no-store",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify([["SET", key, JSON.stringify(value)]])
+  });
+  if (!response.ok) throw new Error(`upstash_write_${response.status}`);
+  return true;
+}
+
+async function readSupabaseCache(key) {
+  const base = envValue("SUPABASE_URL").replace(/\/$/, "");
+  const serviceKey = envValue("SUPABASE_SERVICE_ROLE_KEY");
+  const response = await fetch(`${base}/rest/v1/dashboard_cache?id=eq.${encodeURIComponent(key)}&select=payload`, {
+    cache: "no-store",
+    headers: {
+      apikey: serviceKey,
+      Authorization: `Bearer ${serviceKey}`,
+      Accept: "application/json"
+    }
+  });
+  if (!response.ok) throw new Error(`supabase_read_${response.status}`);
+  const rows = await response.json();
+  return rows?.[0]?.payload || null;
+}
+
+async function writeSupabaseCache(key, value) {
+  const base = envValue("SUPABASE_URL").replace(/\/$/, "");
+  const serviceKey = envValue("SUPABASE_SERVICE_ROLE_KEY");
+  const response = await fetch(`${base}/rest/v1/dashboard_cache?on_conflict=id`, {
+    method: "POST",
+    cache: "no-store",
+    headers: {
+      apikey: serviceKey,
+      Authorization: `Bearer ${serviceKey}`,
+      "Content-Type": "application/json",
+      Prefer: "resolution=merge-duplicates"
+    },
+    body: JSON.stringify({ id: key, payload: value, updated_at: new Date().toISOString() })
+  });
+  if (!response.ok) throw new Error(`supabase_write_${response.status}`);
+  return true;
+}
+
+async function hydratePersistentCache() {
+  const cached = await cacheAdapter.read();
+  if (cached?.generatedAt) {
+    lastGoodSnapshot = cached;
+    lastGoodSources = cached.sources || {};
+  }
+  return cached;
 }
 
 function envDebug() {
@@ -554,14 +655,14 @@ async function fetchStooqIndex(providerSymbol, indexId) {
     headers: { "User-Agent": "Mozilla/5.0 (compatible; Institutional-Terminal/1.0)" }
   });
   if (!response.ok) return null;
-  const [, line] = (await response.text()).trim().split(/\r?\n/);
-  if (!line) return null;
-  const [, date, time, , , , close, volume, previous] = line.split(",");
-  const price = Number(close);
-  const prev = Number(previous);
+  const [headerLine, line] = (await response.text()).trim().split(/\r?\n/);
+  const row = parseStooqCsvRow(headerLine, line);
+  if (!row) return null;
+  const price = Number(row.close);
+  const percentChange = parseStooqPercent(row.percent);
   if (!validIndexValue(price)) return null;
-  const change = validIndexValue(prev) ? ((price - prev) / prev) * 100 : 0;
-  const timestamp = date && time ? Date.parse(`${date}T${String(time).replace(/\./g, ":")}Z`) : Date.now();
+  const change = Number.isFinite(percentChange) ? percentChange : 0;
+  const timestamp = row.date && row.time ? Date.parse(`${row.date}T${String(row.time).replace(/\./g, ":")}Z`) : Date.now();
   return {
     symbol: indexId,
     providerSymbol,
@@ -569,12 +670,35 @@ async function fetchStooqIndex(providerSymbol, indexId) {
     value: price,
     change,
     regularChange: change,
-    volume: Number(volume) || 0,
-    averageVolume: Number(volume) || 0,
+    changeQuality: Number.isFinite(percentChange) ? "percent" : "unknown",
+    volume: Number(row.volume) || 0,
+    averageVolume: Number(row.volume) || 0,
     dataStatus: "DELAYED",
     provider: "Stooq CSV",
     timestamp: Number.isFinite(timestamp) ? timestamp : Date.now()
   };
+}
+
+function parseStooqCsvRow(headerLine = "", line = "") {
+  if (!headerLine || !line) return null;
+  const headers = headerLine.split(",").map((item) => item.trim().toLowerCase());
+  const values = line.split(",");
+  const row = Object.fromEntries(headers.map((header, index) => [header, values[index]]));
+  return {
+    symbol: row.symbol,
+    date: row.date,
+    time: row.time,
+    close: row.close,
+    volume: row.volume,
+    percent: row["%change"] ?? row["change%"] ?? row.percent ?? row.perc
+  };
+}
+
+function parseStooqPercent(value) {
+  if (value === undefined || value === null || value === "" || String(value).toUpperCase() === "N/D") return null;
+  const cleaned = String(value).replace("%", "").trim();
+  const number = Number(cleaned);
+  return Number.isFinite(number) ? number : null;
 }
 
 function prefetchIndexRow(route, context = {}) {
@@ -993,13 +1117,22 @@ async function fetchStooqQuote(symbol) {
     headers: { "User-Agent": "Mozilla/5.0 (compatible; Institutional-Terminal/1.0)" }
   });
   if (!response.ok) return null;
-  const [, line] = (await response.text()).trim().split(/\r?\n/);
-  if (!line) return null;
-  const [, , , , , , close, volume, previous] = line.split(",");
-  const price = Number(close);
-  const prev = Number(previous);
-  if (!Number.isFinite(price) || !Number.isFinite(prev) || price <= 0 || prev <= 0) return null;
-  return { symbol, price, change: ((price - prev) / prev) * 100, regularChange: ((price - prev) / prev) * 100, volume: Number(volume) || 0, averageVolume: Number(volume) || 0 };
+  const [headerLine, line] = (await response.text()).trim().split(/\r?\n/);
+  const row = parseStooqCsvRow(headerLine, line);
+  if (!row) return null;
+  const price = Number(row.close);
+  if (!Number.isFinite(price) || price <= 0) return null;
+  const percentChange = parseStooqPercent(row.percent);
+  const change = Number.isFinite(percentChange) ? percentChange : 0;
+  return {
+    symbol,
+    price,
+    change,
+    regularChange: change,
+    changeQuality: Number.isFinite(percentChange) ? "percent" : "unknown",
+    volume: Number(row.volume) || 0,
+    averageVolume: Number(row.volume) || 0
+  };
 }
 
 async function fetchAlphaVantageQuote(symbol) {
@@ -2062,6 +2195,7 @@ function calculateRiskRegime(indices) {
 
 export async function buildSnapshot(req) {
   const generatedAt = Date.now();
+  await hydratePersistentCache();
   console.log(`${SOURCE_DEBUG_PREFIX} ENV CHECK`, {
     FINNHUB_API_KEY: !!envValue("FINNHUB_API_KEY"),
     TWELVEDATA_API_KEY: !!envValue("TWELVEDATA_API_KEY"),
@@ -2366,10 +2500,12 @@ export async function buildSnapshot(req) {
     generatedAt,
     envDebug: envDebug(),
     lastKnownGood: {
+      adapter: cacheAdapter.type,
       generatedAt: lastGoodSnapshot?.generatedAt || null,
       marketData: lastGoodSnapshot?.marketData || null,
       indices: lastGoodIndices(),
-      quotes: lastGoodQuotes()
+      quotes: lastGoodQuotes(),
+      sources: lastGoodSnapshot?.sources || null
     },
     marketData: normalizedMarketDataSource.data || { indices: normalizedMarketDataSource.indices || [], quotes: normalizedMarketDataSource.quotes || [], provider: normalizedMarketDataSource.provider },
     summary: {
@@ -2465,7 +2601,7 @@ export async function buildSnapshot(req) {
     }
   };
   console.log("[SNAPSHOT FINAL]", JSON.stringify(snapshot, null, 2));
-  lastGoodSnapshot = snapshot;
+  await cacheAdapter.write(LAST_KNOWN_GOOD_KEY, snapshot);
   return snapshot;
 }
 
@@ -2487,8 +2623,13 @@ export default async function handler(req, res) {
   try {
     noStoreJson(res, 200, await buildSnapshot(req));
   } catch (error) {
+    const persistent = await cacheAdapter.read();
+    if (persistent?.generatedAt) {
+      noStoreJson(res, 200, { ...persistent, servedFrom: "last-known-good", cacheAdapter: cacheAdapter.type, error: error.message });
+      return;
+    }
     if (lastGoodSnapshot) {
-      noStoreJson(res, 200, { ...lastGoodSnapshot, servedFrom: "last-success", error: error.message });
+      noStoreJson(res, 200, { ...lastGoodSnapshot, servedFrom: "last-success-memory", cacheAdapter: "memory", error: error.message });
       return;
     }
     noStoreJson(res, 200, {
