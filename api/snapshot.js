@@ -736,6 +736,39 @@ function lastKnownGoodIndex(id) {
   };
 }
 
+function marketDataStats(data = {}) {
+  const indices = Array.isArray(data.indices) ? data.indices : [];
+  const quotes = Array.isArray(data.quotes) ? data.quotes : [];
+  return {
+    indicesCount: indices.length,
+    liveDelayedIndicesCount: indices.filter((item) => ["live", "delayed"].includes(normalizeDataQuality(item.dataQuality || item.status))).length,
+    quotesCount: quotes.length,
+    liveDelayedQuotesCount: quotes.filter((item) => ["live", "delayed"].includes(normalizeDataQuality(item.dataQuality || item.status))).length
+  };
+}
+
+function buildDebugActiveMarketData(snapshot = {}) {
+  const candidates = [
+    { source: "current", data: snapshot.sources?.marketData?.data || snapshot.marketData, provider: snapshot.sources?.marketData?.provider || snapshot.summary?.provider },
+    { source: "lastKnownGood", data: snapshot.lastKnownGood?.marketData, provider: snapshot.lastKnownGood?.marketData?.provider },
+    { source: "lastKnownGood", data: snapshot.lastKnownGood?.sources?.marketData?.data, provider: snapshot.lastKnownGood?.sources?.marketData?.provider },
+    { source: "fallback", data: { indices: snapshot.indices || [], quotes: snapshot.quotes || [] }, provider: snapshot.summary?.provider }
+  ];
+  const selected = candidates.map((candidate) => ({ ...candidate, stats: marketDataStats(candidate.data || {}) }))
+    .find((candidate) => candidate.stats.liveDelayedIndicesCount >= 2 || candidate.stats.liveDelayedQuotesCount >= 3)
+    || candidates.map((candidate) => ({ ...candidate, stats: marketDataStats(candidate.data || {}) })).find((candidate) => candidate.stats.indicesCount || candidate.stats.quotesCount)
+    || { source: "fallback", data: {}, provider: "Fallback", stats: marketDataStats({}) };
+  return {
+    selectedSource: selected.source,
+    indicesCount: selected.stats.indicesCount,
+    liveDelayedIndicesCount: selected.stats.liveDelayedIndicesCount,
+    quotesCount: selected.stats.quotesCount,
+    liveDelayedQuotesCount: selected.stats.liveDelayedQuotesCount,
+    provider: selected.provider || selected.data?.provider || "Market Data",
+    cacheAdapter: cacheAdapter.type
+  };
+}
+
 function tradingViewIndexProxy(id, route, context = {}) {
   const stale = lastKnownGoodIndex(id);
   if (!stale) return null;
@@ -2600,6 +2633,7 @@ export async function buildSnapshot(req) {
         newsCatalysts: newsCatalystsSource
     }
   };
+  snapshot.debugActiveMarketData = buildDebugActiveMarketData(snapshot);
   console.log("[SNAPSHOT FINAL]", JSON.stringify(snapshot, null, 2));
   await cacheAdapter.write(LAST_KNOWN_GOOD_KEY, snapshot);
   return snapshot;
