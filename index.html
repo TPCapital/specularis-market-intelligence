@@ -16,8 +16,8 @@
         <div class="meta">
           <span id="statusDot" class="status-dot"></span>
           <span id="dataStatus">初始化</span>
-          <time id="asOf">--</time>
-          <span id="refreshTimer">--</span>
+          <time id="asOf">等待快照</time>
+          <span id="refreshTimer">自动刷新准备中</span>
         </div>
       </header>
 
@@ -25,7 +25,7 @@
         <article class="regime-panel">
           <p class="panel-label">Risk Regime</p>
           <div class="regime-row">
-            <span id="riskMode" class="risk-mode">--</span>
+            <span id="riskMode" class="risk-mode">观察</span>
             <span id="riskScore" class="risk-score">0</span>
           </div>
           <p id="riskConclusion" class="conclusion">读取最新快照。</p>
@@ -43,18 +43,18 @@
       </section>
 
       <section class="scanner-status-bar">
-        <span id="rvLeader">相对成交量龙头 --</span>
-        <span id="strongestSector">最强板块 --</span>
-        <span id="riskAppetite">风险偏好 --</span>
-        <span id="premarketMomentum">盘前动量 --</span>
-        <span id="openingBias">开盘倾向 --</span>
+        <span id="rvLeader">相对成交量龙头 等待确认</span>
+        <span id="strongestSector">最强板块 等待确认</span>
+        <span id="riskAppetite">风险偏好 等待确认</span>
+        <span id="premarketMomentum">盘前动量 等待确认</span>
+        <span id="openingBias">开盘倾向 等待确认</span>
       </section>
 
       <section class="terminal-stack">
         <section class="section market-strip">
           <div class="section-title">
             <h2>市场指数</h2>
-            <span id="indexModuleMeta">快照数据 · --</span>
+            <span id="indexModuleMeta">等待同步</span>
           </div>
           <div id="indexGrid" class="card-grid six loading-zone is-loading"></div>
           <article class="market-summary-card">
@@ -67,7 +67,7 @@
           <div>
             <div class="section-title">
             <h2>风险指标</h2>
-            <span id="sentimentModuleMeta">快照数据 · --</span>
+            <span id="sentimentModuleMeta">等待同步</span>
             </div>
             <div id="sentimentGrid" class="card-grid three loading-zone is-loading"></div>
           </div>
@@ -81,7 +81,7 @@
         <section class="section">
           <div class="section-title">
             <h2>盘前交易计划 <small>Premarket Trade Plan</small></h2>
-            <span id="tradePlanModuleMeta">观察 · --</span>
+            <span id="tradePlanModuleMeta">观察模式</span>
           </div>
           <article class="trade-plan-card">
             <h3 id="tradePlanTitle">读取机会快照。</h3>
@@ -93,7 +93,7 @@
         <section class="section focus-panel">
           <div class="section-title">
             <h2>强势股自动筛选</h2>
-            <span id="riskModuleMeta">快照数据 · --</span>
+            <span id="riskModuleMeta">等待同步</span>
           </div>
           <aside class="tape-card">
               <p class="panel-label">股票池逻辑</p>
@@ -105,7 +105,7 @@
         <section class="section">
           <div class="section-title">
             <h2>今日机会榜 <small>PREMARKET OPPORTUNITY SCANNER</small></h2>
-            <span id="opportunityModuleMeta">观察 · --</span>
+            <span id="opportunityModuleMeta">观察模式</span>
           </div>
           <div id="opportunityGrid" class="opportunity-grid loading-zone is-loading"></div>
         </section>
@@ -113,7 +113,7 @@
         <section class="section">
           <div class="section-title">
             <h2>盘前动能 <small>PREMARKET MOMENTUM</small></h2>
-            <span id="momentumModuleMeta">观察 · --</span>
+            <span id="momentumModuleMeta">观察模式</span>
           </div>
           <div id="momentumGrid" class="opportunity-grid loading-zone is-loading"></div>
         </section>
@@ -121,7 +121,7 @@
         <section class="section">
           <div class="section-title">
             <h2>明星股池</h2>
-            <span id="starModuleMeta">快照数据 · --</span>
+            <span id="starModuleMeta">等待同步</span>
           </div>
           <div id="starGrid" class="star-grid loading-zone is-loading"></div>
         </section>
@@ -129,7 +129,7 @@
         <section class="section command-main">
           <div class="section-title">
             <h2>盘前异动榜</h2>
-            <span id="moverModuleMeta">快照数据 · --</span>
+            <span id="moverModuleMeta">等待同步</span>
           </div>
           <div id="moverTable" class="data-table loading-zone is-loading"></div>
         </section>
@@ -137,7 +137,7 @@
         <section class="section">
           <div class="section-title">
             <h2>热钱板块</h2>
-            <span id="flowModuleMeta">快照数据 · --</span>
+            <span id="flowModuleMeta">等待同步</span>
           </div>
           <aside class="tape-card flow-summary-card">
             <p class="panel-label">AI 盘面解读</p>
@@ -150,7 +150,7 @@
         <section class="section">
           <div class="section-title">
             <h2>期权信号系统 <small>OPTIONS SIGNAL SYSTEM</small></h2>
-            <span id="optionsModuleMeta">快照数据 · --</span>
+            <span id="optionsModuleMeta">等待同步</span>
           </div>
           <div id="optionsFlow" class="options-grid loading-zone is-loading"></div>
           <p class="module-footnote">免费版未接入真实期权大单流，本模块基于正股动量、相对成交量、板块强度、QQQ/SPY 方向、波动风险与新闻催化生成 CALL / PUT / WATCH / AVOID 代理信号。</p>
@@ -159,7 +159,7 @@
         <section class="section">
           <div class="section-title">
             <h2>利好 / 利空新闻</h2>
-            <span id="newsModuleMeta">快照数据 · --</span>
+            <span id="newsModuleMeta">等待同步</span>
           </div>
           <div id="newsGrid" class="news-grid loading-zone is-loading"></div>
         </section>
@@ -168,7 +168,7 @@
           <article class="intel-panel">
             <div class="section-title compact">
               <h2>宏观快讯</h2>
-              <span id="macroModuleMeta">快照数据 · --</span>
+              <span id="macroModuleMeta">等待同步</span>
             </div>
             <div id="macroFeed" class="feed-list loading-zone is-loading"></div>
           </article>
@@ -176,7 +176,7 @@
           <article class="intel-panel">
             <div class="section-title compact">
               <h2>散户情绪 / WSB提及热度</h2>
-              <span id="retailModuleMeta">快照数据 · --</span>
+              <span id="retailModuleMeta">等待同步</span>
             </div>
             <div id="retailPanel" class="loading-zone is-loading"></div>
           </article>
@@ -186,7 +186,7 @@
       <section class="section source-section">
         <div class="section-title compact">
           <h2>数据源状态</h2>
-          <span id="sourceModuleMeta">快照数据 · --</span>
+          <span id="sourceModuleMeta">等待同步</span>
         </div>
         <div id="sourceGrid" class="source-grid loading-zone is-loading"></div>
       </section>

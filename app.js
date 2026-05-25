@@ -868,6 +868,7 @@ function buildDashboard(sources) {
     retail,
     options,
     opportunities,
+    opportunityWatchlist: watchlistOnly,
     premarketMomentum,
     tradePlan,
     scannerStatus: buildScannerStatus(opportunities, flows.length ? flows : strategyFlows, risk, premarketMomentum),
@@ -1786,7 +1787,7 @@ function render(dashboard) {
   renderMacro(dashboard.macro);
   renderRetail(dashboard.retail, dashboard.moduleStatus.retail);
   renderOptions(dashboard.options);
-  renderOpportunities(dashboard.opportunities);
+  renderOpportunities(dashboard.opportunities, dashboard.opportunityWatchlist);
   renderPremarketMomentum(dashboard.premarketMomentum);
   renderTradePlan(dashboard.tradePlan);
   renderMetricGrid("#sentimentGrid", dashboard.sentiment, "sentiment");
@@ -1826,9 +1827,25 @@ function renderModuleStatus(statusMap) {
       node.classList.toggle("module-cached", item.status === "cached");
       node.classList.toggle("module-fallback", item.status === "fallback" || item.status === "snapshot");
       node.classList.toggle("module-unavailable", item.status === "unavailable");
-      node.textContent = `${statusLabel(item.status, key)} · ${item.timestamp}`;
+      node.textContent = formatModuleMeta(item, key);
+      node.title = `${statusLabel(item.status, key)} · ${item.timestamp || "最近快照"}`;
     });
   }
+}
+
+function formatModuleMeta(item = {}, key = "") {
+  const status = normalizeDataQuality(item.status);
+  const label = statusLabel(status, key).replace(/（.*?）/g, "");
+  const time = item.timestamp && item.timestamp !== "--" ? item.timestamp : "最近快照";
+  if (item.activeSource === "lastKnownGood") {
+    return `最近有效 · ${(item.cacheAdapter || "cache").toString().toUpperCase()}`;
+  }
+  if (status === "live") return `LIVE · ${time}`;
+  if (status === "delayed") return `FRESH · ${time}`;
+  if (status === "cached") return `CACHE · ${time}`;
+  if (status === "proxy") return `PROXY · ${time}`;
+  if (status === "unavailable") return `结构参考 · 等待恢复`;
+  return `${label} · ${time}`;
 }
 
 function statusLabel(status, key = "") {
@@ -2074,9 +2091,29 @@ function renderOptions(items) {
   `).join(""));
 }
 
-function renderOpportunities(items) {
-  html("#opportunityGrid", items.map((item) => `
-    <article class="opportunity-card ${signalClass(item.signal)} quality-${escapeHtml(item.dataQuality || "snapshot")}">
+function renderOpportunities(items = [], watchlist = []) {
+  const highItems = (items || []).filter((item) => item?.symbol);
+  const watchItems = (watchlist || []).filter((item) => item?.symbol && !String(item.symbol).includes("暂无"));
+  const highHasRealCard = highItems.some((item) => !String(item.symbol || "").includes("暂无"));
+  const blocks = [];
+
+  blocks.push(`<div class="opportunity-subhead priority-high"><span>高置信机会</span><em>${highHasRealCard ? "可交易优先" : "等待量能确认"}</em></div>`);
+  blocks.push(...(highItems.length ? highItems.map((item) => opportunityCardHtml(item, false)) : [opportunityCardHtml(emptyOpportunityCard(), false)]));
+
+  if (watchItems.length) {
+    blocks.push(`<div class="opportunity-subhead priority-watch"><span>盘前观察名单</span><em>有方向 · 等确认</em></div>`);
+    blocks.push(...watchItems.map((item) => opportunityCardHtml({ ...item, signal: item.signal || "HIGH MOMENTUM WATCH" }, true)));
+  } else {
+    blocks.push(`<div class="opportunity-subhead priority-watch"><span>盘前观察名单</span><em>暂无触发</em></div>`);
+    blocks.push(`<div class="empty-state visual-empty">暂无可用观察名单；等待 live/delayed quote 或涨跌幅触发。</div>`);
+  }
+
+  html("#opportunityGrid", blocks.join(""));
+}
+
+function opportunityCardHtml(item, isWatchlist = false) {
+  return `
+    <article class="opportunity-card ${signalClass(item.signal)} ${isWatchlist ? "watchlist-card" : ""} quality-${escapeHtml(item.dataQuality || "snapshot")}">
       <div class="opportunity-head">
         <div>
           <strong>${escapeHtml(item.symbol)}</strong>
@@ -2084,7 +2121,7 @@ function renderOpportunities(items) {
         </div>
         <b>${item.score === null ? "观察" : item.score}</b>
       </div>
-      <div class="signal-pill">${escapeHtml(displayTradeState(item.signal))}</div>
+      <div class="signal-pill">${isWatchlist ? "观察名单 · " : ""}${escapeHtml(displayTradeState(item.signal))}</div>
       <p>${escapeHtml(item.logic)}</p>
       <div class="opportunity-meta">
         <span>${escapeHtml(item.confidence === "低" ? "等待盘前确认" : `可信度 ${item.confidence || "等待确认"}`)}</span>
@@ -2094,11 +2131,12 @@ function renderOpportunities(items) {
         <span>${escapeHtml(displayTradeState(item.openingConfirmation))}</span>
       </div>
       <div class="risk-tags">
-        ${item.riskTags.map((tag) => `<span>${escapeHtml(displayTradeState(tag))}</span>`).join("")}
+        ${(item.riskTags || []).map((tag) => `<span>${escapeHtml(displayTradeState(tag))}</span>`).join("")}
       </div>
     </article>
-  `).join(""));
+  `;
 }
+
 
 function renderPremarketMomentum(items) {
   if (!items?.length) {

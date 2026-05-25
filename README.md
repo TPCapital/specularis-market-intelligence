@@ -164,3 +164,22 @@ window.DASHBOARD_CONFIG = {
 ```
 
 `benzinga.data.movers` 若为空，前端会从 `marketData.quotes` 派生盘前异动榜；如果核心行情也为空，则显示空状态，不生成伪信号。
+
+## v3 修复与视觉逻辑增强
+
+本版本在 fixed-v2 基础上继续优化：
+
+- 保留 Upstash/Supabase 持久缓存与坏快照拒写逻辑，避免 `dataReliability: 0`、结构快照覆盖 lastKnownGood。
+- 保留 `last-known-good` 前端识别，保证当前请求失败时优先展示最近有效数据。
+- 强化模块标题、状态徽章、重点模块边框与卡片层级，减少“半成品占位符”观感。
+- 将“今日机会榜”拆成两层：
+  - 高置信机会：可交易优先，需真实量能/盘前变化/有效行情支持。
+  - 盘前观察名单：有方向但等待确认，避免把代理推断包装成交易信号。
+- 首页初始占位从 `--` 改为“等待同步 / 观察模式 / 等待确认”，增强产品感。
+
+部署后建议检查：
+
+1. `/api/snapshot` 中 `cacheWriteStatus.adapter` 是否为 `upstash`。
+2. `/api/snapshot` 中是否出现 `currentSnapshotRejected: true`，若出现也应正常返回 lastKnownGood。
+3. 页面“数据源状态”中是否显示市场数据 active source、Upstash 状态和 NDX/VIX/DXY 命中源。
+4. 今日机会榜是否同时展示“高置信机会”和“盘前观察名单”。
