@@ -329,15 +329,18 @@ async function loadServerSnapshot() {
   const marketRegime = json.marketRegime || null;
   const tradePlan = json.tradePlan || null;
   const watchlist = json.watchlist || null;
-  console.log("[FRONTEND SNAPSHOT]", json);
-  console.log("[FRONTEND MARKET DATA]", marketData);
-  console.log("[FRONTEND INDICES]", indices);
-  console.log("[FRONTEND QUOTES]", quotes);
+  if (window.DEBUG_FRONTEND === true) {
+    console.log("[FRONTEND SNAPSHOT]", json);
+    console.log("[FRONTEND MARKET DATA]", marketData);
+    console.log("[FRONTEND INDICES]", indices);
+    console.log("[FRONTEND QUOTES]", quotes);
+  }
   const sources = fallbackSources();
   for (const [key, value] of Object.entries(json.sources || {})) {
     const normalizedStatus = normalizeDataQuality(value?.status);
     if (!sources[key] || !["live", "delayed", "proxy", "cached", "snapshot", "unavailable"].includes(normalizedStatus) || !hasSnapshotData(value.data)) continue;
-    const status = json.servedFrom === "last-success" || normalizedStatus === "cached" ? "cached" : normalizedStatus;
+    const servedFromLastKnownGood = ["last-success", "last-known-good", "last-success-memory"].includes(json.servedFrom);
+    const status = servedFromLastKnownGood || normalizedStatus === "cached" ? "cached" : normalizedStatus;
     const dataQuality = normalizeDataQuality(status);
     const updatedAt = dataQuality === "snapshot"
       ? null
@@ -392,6 +395,15 @@ async function loadServerSnapshot() {
       fallback: activeMarketData.source !== "current",
       activeSource: activeMarketData.source,
       cacheAdapter: activeMarketData.cacheAdapter,
+      debugActiveMarketData: json.debugActiveMarketData || {
+        selectedSource: activeMarketData.source,
+        indicesCount: indices.length,
+        liveDelayedIndicesCount: activeMarketData.liveDelayedIndicesCount,
+        quotesCount: quotes.length,
+        liveDelayedQuotesCount: activeMarketData.liveDelayedQuotesCount,
+        provider: activeMarketData.provider,
+        cacheAdapter: activeMarketData.cacheAdapter || json.lastKnownGood?.adapter || "memory"
+      },
       activeStats: {
         indicesCount: indices.length,
         liveDelayedIndicesCount: activeMarketData.liveDelayedIndicesCount,

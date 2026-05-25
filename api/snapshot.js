@@ -131,6 +131,7 @@ const INDEX_SOURCE_MAP = {
   DXY: [
     { type: "yahooChart", provider: "Yahoo Chart", symbol: "DX-Y.NYB", quality: "DELAYED" },
     { type: "prefetch", provider: "TwelveData", symbol: "DXY", quality: "DELAYED" },
+    { type: "yahooProxy", provider: "Yahoo UUP proxy", symbol: "UUP", quality: "PROXY" },
     { type: "alpha", provider: "AlphaVantage FX proxy", symbol: "DX-Y.NYB", quality: "DELAYED" },
     { type: "lastKnownGood", provider: "lastKnownGood", quality: "CACHED" }
   ],
@@ -312,8 +313,7 @@ function lastGoodQuotes() {
 
 function normalizeDataQuality(status = "") {
   const value = String(status || "").toLowerCase();
-  if (["live", "delayed", "cached", "snapshot", "stale", "unavailable"].includes(value)) return value;
-  if (value === "proxy") return "stale";
+  if (["live", "delayed", "cached", "snapshot", "stale", "unavailable", "proxy"].includes(value)) return value;
   if (value === "fallback") return "snapshot";
   if (String(status).toUpperCase() === "LIVE") return "live";
   if (String(status).toUpperCase() === "DELAYED") return "delayed";
@@ -811,6 +811,19 @@ async function fetchIndexWithFallback(indexId, context = {}) {
       let row = null;
       if (route.type === "prefetch") row = prefetchIndexRow(route, context);
       if (route.type === "yahooChart") row = await fetchYahooChartIndex(route.symbol, indexId);
+      if (route.type === "yahooProxy") {
+        const proxy = await fetchYahooChartIndex(route.symbol, route.symbol);
+        if (proxy) {
+          row = {
+            ...proxy,
+            symbol: indexId,
+            providerSymbol: route.symbol,
+            dataStatus: route.quality || "PROXY",
+            provider: route.provider,
+            source: route.provider
+          };
+        }
+      }
       if (route.type === "stooq") row = await fetchStooqIndex(route.symbol, indexId);
       if (route.type === "alpha") row = await fetchAlphaVantageQuote(route.symbol);
       if (route.type === "tradingViewProxy") row = tradingViewIndexProxy(indexId, route, context);
