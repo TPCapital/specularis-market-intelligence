@@ -1,10 +1,10 @@
 const CONFIG = window.DASHBOARD_CONFIG || {};
-const REFRESH_SECONDS = CONFIG.refreshSeconds || 900;
+const REFRESH_SECONDS = CONFIG.refreshSeconds || 300;
 const CACHE_PREFIX = "ai-us-equity-dashboard:";
 const FALLBACK_SNAPSHOT_LABEL = "快照数据（SNAPSHOT）";
 const CACHE_TRADABLE_MS = 15 * 60 * 1000;
 const STATUS_WEIGHT = { live: 1, delayed: 0.75, proxy: 0.35, cached: 0.25, snapshot: 0, unavailable: 0 };
-const SOURCE_WEIGHT = { finnhub: 0.24, twelveData: 0.22, relativeVolume: 0.2, earnings: 0.17, marketBreadth: 0.17 };
+const SOURCE_WEIGHT = { marketData: 0.42, premarketMomentum: 0.2, marketBreadth: 0.16, tradingView: 0.12, relativeVolume: 0.1 };
 
 const sourceCatalog = {
   finnhub: "Finnhub",
@@ -470,6 +470,12 @@ function enrichSources(rawSources) {
       isTradable,
       timestamp: source?.timestamp || qualityTimestamp(dataQuality, updatedAt),
       source: source?.source || source?.label || sourceCatalog[key] || key,
+      sourceStatus: source?.sourceStatus || source?.fetchStatus || statusLabel(dataQuality, key),
+      fetchedAt: Number(source?.fetchedAt || 0) || null,
+      publishedAt: Number(source?.publishedAt || source?.updatedAt || 0) || null,
+      sourcePlan: source?.sourcePlan || null,
+      primarySource: source?.primarySource || source?.sourcePlan?.primary || null,
+      backupSources: source?.backupSources || source?.sourcePlan?.backups || [],
       latency: Number.isFinite(Number(source?.latency)) ? Number(source.latency) : null,
       confidence: source?.confidence || confidenceLabelByStatus(dataQuality),
       freshness: source?.freshness || freshnessLabel(updatedAt, dataQuality),
@@ -497,8 +503,8 @@ function freshnessLabel(updatedAt, status = "") {
 
 function qualityTimestamp(dataQuality, updatedAt) {
   if (updatedAt && dataQuality !== "snapshot") return formatClock(updatedAt);
-  if (dataQuality === "snapshot") return "低置信度";
-  if (dataQuality === "unavailable") return "数据不可用";
+  if (dataQuality === "snapshot") return "最新快照";
+  if (dataQuality === "unavailable") return "暂无可用源";
   return "--";
 }
 
@@ -610,14 +616,14 @@ function buildDashboard(sources) {
   const decision = sources.decisionEngine?.data || {};
   const strategyFlows = flowsForScoring.length ? flowsForScoring : deriveStrategyFlows(premarketMomentum, stars, marketBreadth);
   const calculatedRisk = indicesForScoring.length
-    ? calculateRiskRegime(indicesForScoring, sources.sentiment, retailForScoring, {
+    ? calculateRiskRegime(indicesForScoring, [], {}, {
         breadth: marketBreadth,
         momentum: premarketMomentum,
         tradingView: stars
       })
     : {
         score: null,
-        mode: "数据不足",
+        mode: "暂无可用源",
         confidence: "低",
         dataQuality: "unavailable",
         tradable: false,
@@ -672,7 +678,7 @@ function buildDashboard(sources) {
     moduleStatus: {
       risk: statusGroup([sources.marketData]),
       index: statusGroup([sources.marketData]),
-      sentiment: { status: "snapshot", timestamp: "低置信度代理" },
+      sentiment: { status: "snapshot", timestamp: "最新快照" },
       flow: statusGroup([sources.finviz]),
       mover: statusGroup([sources.benzinga]),
       star: statusGroup([sources.tradingView]),
@@ -724,7 +730,19 @@ function sanitizeIndices(indices = [], marketSource = {}) {
     const live = byId.get(id);
     const value = Number(live?.value);
     if (!Number.isFinite(value) || value <= 0) {
-      if (!fallbackById.has(id)) return null;
+      if (!fallbackById.has(id)) {
+        return {
+          id,
+          name: id,
+          value: null,
+          change: 0,
+          dataQuality: "snapshot",
+          source: "Cached Snapshot",
+          updatedAt: null,
+          isTradable: false,
+          note: "快照数据（SNAPSHOT）：当前指数源暂不可用，不参与核心评分。"
+        };
+      }
       return {
         ...fallbackMetric,
         value: fallbackMetric.value,
@@ -733,13 +751,13 @@ function sanitizeIndices(indices = [], marketSource = {}) {
         source: "Fallback Snapshot",
         updatedAt: null,
         isTradable: false,
-        note: "快照数据（SNAPSHOT）：低置信度代理输入，用于维持方向判断。"
+        note: "缓存快照（SNAPSHOT）：仅作辅助参考。"
       };
     }
     const item = attachQuality(live, marketSource, marketSource.label, live.status || marketSource.status);
     return {
       ...item,
-      note: item.isTradable ? item.note : "快照数据（SNAPSHOT）：低置信度代理输入，用于维持方向判断。"
+      note: item.isTradable ? item.note : "缓存快照（SNAPSHOT）：仅作辅助参考。"
     };
   }).filter(Boolean);
 }
@@ -749,9 +767,9 @@ function sourceModeLabel(sources) {
   if (statuses.some((status) => status === "live")) return "实时 + 结构化情报";
   if (statuses.some((status) => status === "delayed")) return "延迟 + 结构化情报";
   if (statuses.some((status) => status === "proxy")) return "代理推断情报";
-  if (statuses.some((status) => status === "cached")) return "上次成功数据";
-  if (statuses.some((status) => status === "unavailable")) return "数据不足";
-  return "快照数据";
+  if (statuses.some((status) => status === "cached")) return "缓存快照";
+  if (statuses.some((status) => status === "unavailable")) return "暂无可用源";
+  return "最新快照";
 }
 
 function dataBasisLabel(item) {
@@ -759,7 +777,7 @@ function dataBasisLabel(item) {
   if (item.status === "delayed") return `资金流基于延迟数据 ${item.timestamp}`;
   if (item.status === "proxy") return `资金流基于代理推断数据 ${item.timestamp}`;
   if (item.status === "cached") return `资金流基于最后成功数据 ${item.timestamp}`;
-  return `资金流基于快照数据`;
+  return `资金流基于缓存快照`;
 }
 
 function formatClock(value) {
@@ -818,7 +836,7 @@ function statusGroup(sourceItems) {
   }
   return {
     status: "snapshot",
-    timestamp: "低置信度代理"
+    timestamp: "最新快照"
   };
 }
 
@@ -861,8 +879,8 @@ function normalizeOptions(payload = [], source = {}) {
       score: null,
       conviction: "DATA INSUFFICIENT",
       direction: "DATA INSUFFICIENT",
-      summary: "核心实时数据不足，暂不生成 CALL / PUT 方向信号。",
-      risk: "等待下一次数据刷新。",
+      summary: "当前使用缓存快照维持观察，不生成强方向信号。",
+      risk: "等待实时源恢复前，仅作辅助参考。",
       dataQuality: source.dataQuality || "snapshot",
       isTradable: false
     }];
@@ -1119,8 +1137,8 @@ function calculatePremarketOpportunities(quotes, context) {
   if (!usableQuotes.length) {
     return [{
       symbol: "--",
-      name: "数据不足",
-      sector: "行情源为空",
+      name: "缓存快照",
+      sector: "暂无可用源",
       score: null,
       confidence: "低",
       dataBasis: "API 完全不可用",
@@ -1130,8 +1148,8 @@ function calculatePremarketOpportunities(quotes, context) {
       openingConfirmation: "DATA INSUFFICIENT",
       vwapBias: "DATA INSUFFICIENT",
       relativeVolume: 0,
-      riskTags: ["数据不足"],
-      logic: "行情源为空，等待下一次刷新。"
+      riskTags: ["缓存快照"],
+      logic: "当前显示最近有效结构，实时源恢复后自动更新。"
     }];
   }
   return usableQuotes
@@ -1270,9 +1288,9 @@ function buildPremarketTradePlan(opportunities, flows, risk, options) {
   const usableOpportunities = opportunities.filter((item) => item.symbol && item.symbol !== "--");
   if (!usableOpportunities.length) {
     return {
-      title: "数据不足，等待下一次刷新。",
+      title: "缓存快照模式",
       body: "行情源完全为空，系统暂不生成方向性交易计划。",
-      focus: ["等待下一次行情刷新"],
+      focus: ["使用最近一次有效结构观察"],
       avoid: ["无数据状态下追单"]
     };
   }
@@ -1346,7 +1364,7 @@ function buildScannerStatus(opportunities, flows, risk, momentum = []) {
 
 function marketSummary(indices, risk = {}, breadth = {}, momentum = []) {
   const byId = Object.fromEntries(indices.map((item) => [item.id, item]));
-  if (![byId.SPY, byId.QQQ].some((item) => item?.value)) return "行情源为空，等待下一次刷新。";
+  if (![byId.SPY, byId.QQQ].some((item) => item?.value)) return "暂无可用核心行情，当前显示缓存快照。";
   if (![byId.SPY, byId.QQQ].some((item) => item?.isTradable)) return "当前基于代理推断与延迟数据生成，方向置信度较低。";
   const leader = momentum[0]?.symbol;
   const breadthScore = Number(breadth.breadthScore || 0);
@@ -1382,13 +1400,13 @@ function calculateRiskRegime(indices, sentiment, retail, context = {}) {
   if (!usableCore.length) {
     return {
       score: null,
-      mode: "数据不足",
+      mode: "暂无可用源",
       confidence: "低",
       dataQuality: "unavailable",
       tradable: false,
       reason: "核心指数行情为空。",
-      conclusion: "行情源为空，等待下一次刷新。",
-      inputs: [["SPY", "数据不足"], ["QQQ", "数据不足"], ["VIX", "数据不足"], ["可信度", "低"]]
+      conclusion: "暂无可用核心行情，当前显示缓存快照。",
+      inputs: [["SPY", "暂无可用源"], ["QQQ", "暂无可用源"], ["VIX", "暂无可用源"], ["可信度", "低"]]
     };
   }
   const fearGreed = sentiment.find((item) => item.id === "Fear & Greed")?.value || 50;
@@ -1472,7 +1490,7 @@ function sentimentVerdict(sentiment, retail) {
 
 function strategyFrom(risk, flows, retail, options, context = {}) {
   if (!risk.tradable) {
-    return ["数据不足，等待下一次刷新。", "行情源完全为空时不生成方向性策略。"];
+    return ["缓存快照模式，维持观察。", "核心行情不可用时不生成强方向策略。"];
   }
   const leader = flows[0]?.sector || "科技";
   const topMomentum = (context.momentum || []).slice(0, 3).map((item) => item.symbol).filter(Boolean);
@@ -1496,7 +1514,7 @@ function strategyFrom(risk, flows, retail, options, context = {}) {
 
 function tapeRead(movers, flows) {
   if (!movers.length && !flows.length) {
-    return { title: "数据不足", reason: "行情与板块源为空，等待下一次刷新。" };
+    return { title: "缓存快照模式", reason: "行情与板块源暂不可用，展示最近一次有效结构。" };
   }
   if (!movers.some((item) => item.isTradable) && !flows.some((item) => item.isTradable)) {
     return { title: "代理推断模式", reason: "当前基于代理推断与延迟数据生成。" };
@@ -1590,16 +1608,17 @@ function renderModuleStatus(statusMap) {
 
 function statusLabel(status, key = "") {
   if (key === "options" && status === "live") return "实时期权流（LIVE）";
-  if (status === "live") return "实时（LIVE）";
-  if (status === "delayed") return "延迟（DELAYED）";
+  if (status === "live") return "实时数据（LIVE）";
+  if (status === "delayed") return "最新快照（FRESH）";
   if (status === "proxy") return "代理推断（PROXY）";
-  if (status === "cached") return "缓存数据（CACHED）";
-  if (status === "unavailable") return "数据不可用（UNAVAILABLE）";
-  return "快照数据（SNAPSHOT）";
+  if (status === "cached") return "缓存快照（CACHED）";
+  if (status === "stale") return "延迟数据（STALE）";
+  if (status === "unavailable") return "暂无可用源（ERROR）";
+  return "最新快照（SNAPSHOT）";
 }
 
 function displayRiskMode(mode) {
-  if (mode === "数据不足") return "数据不足";
+  if (mode === "暂无可用源") return "暂无可用源";
   if (mode === "Risk-On") return "风险偏好开启（Risk-On）";
   if (mode === "Risk-Off") return "风险规避（Risk-Off）";
   if (mode === "Neutral") return "中性（Neutral）";
@@ -1608,7 +1627,7 @@ function displayRiskMode(mode) {
 }
 
 function displayRiskModeHero(mode) {
-  if (mode === "数据不足") return "数据不足";
+  if (mode === "暂无可用源") return "暂无可用源";
   if (mode === "Risk-On") return "风险偏好";
   if (mode === "Risk-Off") return "风险规避";
   if (mode === "Neutral") return "中性";
@@ -1636,7 +1655,7 @@ function displayTradeState(value = "") {
     "AVOID CHASING": "避免追高",
     "LOW QUALITY": "低质量机会（Low Quality）",
     "LOW QUALITY / IGNORE": "低质量机会（Low Quality）",
-    "DATA INSUFFICIENT": "数据不足",
+    "DATA INSUFFICIENT": "暂无可用源",
     CONFIRMED: "已确认（Confirmed）",
     "EARLY ONLY": "仅早盘观察（Early Only）",
     "FAILED OPEN": "开盘失败（Failed Open）",
@@ -1654,7 +1673,7 @@ function displayTradeState(value = "") {
     "Strong Trend": "趋势强劲",
     "Early Only": "仅早盘观察",
     "Put Watch": "看跌观察",
-    "数据不足": "数据不足",
+    "暂无可用源": "暂无可用源",
     WATCH: "观察"
   };
   return map[value] || value;
@@ -1686,9 +1705,17 @@ function renderSources(items) {
     <article class="source-card quality-${escapeHtml(item.dataQuality || item.status)}">
       <span class="source-state ${item.status}">${statusLabel(item.status, item.key)}</span>
       <strong>${escapeHtml(item.label)}</strong>
-      <p>Source：${escapeHtml(item.source || item.label)}<br>Status：${escapeHtml(statusLabel(item.status, item.key))}<br>Latency：${escapeHtml(sourceLatencyLabel(item.latency))} · Freshness：${escapeHtml(item.freshness || sourceAgeLabel(item.updatedAt))}<br>Confidence：${escapeHtml(item.confidence || confidenceLabelByStatus(item.status))} · Fallback：${escapeHtml(item.fallback ? "YES" : "NO")}<br>参与评分：${escapeHtml(sourceScoringLabel(item))}</p>
+      <p>Source：${escapeHtml(item.source || item.label)}<br>Status：${escapeHtml(item.sourceStatus || statusLabel(item.status, item.key))}<br>发布：${escapeHtml(sourcePublishedLabel(item))}<br>抓取：${escapeHtml(sourceFetchedLabel(item))}<br>Latency：${escapeHtml(sourceLatencyLabel(item.latency))} · Freshness：${escapeHtml(item.freshness || sourceAgeLabel(item.updatedAt))}<br>Confidence：${escapeHtml(item.confidence || confidenceLabelByStatus(item.status))} · Fallback：${escapeHtml(item.fallback ? "YES" : "NO")}<br>参与评分：${escapeHtml(sourceScoringLabel(item))}</p>
     </article>
   `).join(""));
+}
+
+function sourcePublishedLabel(item) {
+  return item.publishedAt ? formatDateTime(item.publishedAt) : item.updatedAt ? formatDateTime(item.updatedAt) : "--";
+}
+
+function sourceFetchedLabel(item) {
+  return item.fetchedAt ? formatDateTime(item.fetchedAt) : item.updatedAt ? formatDateTime(item.updatedAt) : "--";
 }
 
 function sourceLatencyLabel(latency) {
@@ -1698,7 +1725,7 @@ function sourceLatencyLabel(latency) {
 
 function sourceUpdatedLabel(item) {
   if (item.updatedAt) return formatDateTime(item.updatedAt);
-  if (item.dataQuality === "snapshot") return "快照 / 低置信度代理";
+  if (item.dataQuality === "snapshot") return "最新快照";
   return item.timestamp || "--";
 }
 
@@ -1837,7 +1864,7 @@ function renderOpportunities(items) {
 
 function renderPremarketMomentum(items) {
   if (!items?.length) {
-    html("#momentumGrid", `<div class="empty-state">暂无有效盘前动能数据，等待下一次实时快照刷新。</div>`);
+    html("#momentumGrid", `<div class="empty-state">当前显示缓存快照；实时动能源恢复后自动更新。</div>`);
     return;
   }
   html("#momentumGrid", items.map((item, index) => `
@@ -1878,7 +1905,7 @@ function signalClass(signal) {
 
 function renderMoverTable(items) {
   if (!items?.length) {
-    html("#moverTable", `<div class="empty-state">暂无有效异动数据，等待下一次快照刷新。</div>`);
+    html("#moverTable", `<div class="empty-state">当前显示缓存快照；异动源恢复后自动更新。</div>`);
     return;
   }
   html("#moverTable", `
@@ -1973,6 +2000,7 @@ function html(selector, value) {
 }
 
 function formatNumber(value) {
+  if (!Number.isFinite(Number(value)) || value === null || value === undefined) return "--";
   return Number(value || 0).toLocaleString("en-US", { maximumFractionDigits: Math.abs(value) >= 100 ? 2 : 3 });
 }
 

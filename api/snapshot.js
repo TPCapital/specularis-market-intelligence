@@ -38,8 +38,11 @@ const sourceCatalog = {
   xMacro: "Macro Feed",
   reddit: "WallStreetBets Reddit",
   finviz: "Sector Heat Proxy",
+  sectorHeat: "Sector Heat Engine",
   unusualWhales: "Options Signal System",
+  optionsSignals: "Options Signal Proxy",
   benzinga: "Benzinga API",
+  newsCatalysts: "News Catalyst Engine",
   finnhubNews: "Finnhub News",
   marketWatchNews: "MarketWatch RSS",
   reutersNews: "Reuters RSS",
@@ -66,6 +69,15 @@ const symbolMeta = {
   PANW: ["Palo Alto", "云安全"],
   COIN: ["Coinbase", "加密资产"],
   MSTR: ["MicroStrategy", "加密资产"],
+  IBIT: ["iShares Bitcoin Trust", "加密资产"],
+  XLK: ["Technology Select Sector SPDR", "Technology"],
+  SMH: ["VanEck Semiconductor ETF", "Semiconductor"],
+  SOXX: ["iShares Semiconductor ETF", "Semiconductor"],
+  XLF: ["Financial Select Sector SPDR", "Financials"],
+  XLE: ["Energy Select Sector SPDR", "Energy"],
+  XLV: ["Health Care Select Sector SPDR", "Healthcare"],
+  XLY: ["Consumer Discretionary Select Sector SPDR", "Consumer"],
+  IWM: ["iShares Russell 2000 ETF", "Small Caps"],
   XOM: ["Exxon Mobil", "能源"],
   CVX: ["Chevron", "能源"],
   JPM: ["JPMorgan", "金融"],
@@ -110,6 +122,20 @@ let lastGoodSnapshot = null;
 const lastGoodFinnhubQuotes = new Map();
 const lastGoodTwelveDataQuotes = new Map();
 const SOURCE_DEBUG_PREFIX = "[snapshot:debug]";
+const LAST_KNOWN_GOOD_TTL_MS = 6 * 60 * 60 * 1000;
+const SOURCE_PLANS = {
+  marketData: { primary: "Finnhub quotes", backups: ["TwelveData", "TradingView Screener", "AlphaVantage / Stooq", "lastKnownGood cache"] },
+  movers: { primary: "News Aggregator movers", backups: ["marketData quotes", "Premarket Momentum Engine", "lastKnownGood cache"] },
+  newsAggregator: { primary: "Benzinga API", backups: ["Finnhub company-news", "MarketWatch RSS", "Reuters RSS", "SEC filing feed", "lastKnownGood cache"] },
+  xMacro: { primary: "FRED macro layer", backups: ["AlphaVantage macro", "Market regime engine", "lastKnownGood cache"] },
+  riskMetrics: { primary: "marketData indices", backups: ["FRED DGS10", "AlphaVantage macro", "lastKnownGood cache"] },
+  crossAsset: { primary: "TwelveData VIX/DXY/XAU/USD", backups: ["FRED DGS10", "AlphaVantage XAUUSD/TREASURY_YIELD", "lastKnownGood cache"] },
+  sectorHeat: { primary: "marketData ETF basket", backups: ["TradingView Screener", "quote sector grouping", "lastKnownGood cache"] },
+  optionsSignals: { primary: "marketData + RVOL + sectorHeat", backups: ["premarketMomentum", "newsCatalysts", "lastKnownGood cache"] },
+  relativeVolume: { primary: "marketData quote volume", backups: ["TradingView volume", "premarketMomentum proxy", "lastKnownGood cache"] },
+  premarketMomentum: { primary: "marketData quotes", backups: ["TradingView Screener", "relativeVolume", "newsCatalysts", "lastKnownGood cache"] },
+  marketBreadth: { primary: "marketData breadth proxy", backups: ["sectorHeat", "TradingView participation", "lastKnownGood cache"] }
+};
 
 function envValue(name) {
   const value = process.env[name];
@@ -136,8 +162,8 @@ function lastGoodQuotes() {
 
 function normalizeDataQuality(status = "") {
   const value = String(status || "").toLowerCase();
-  if (["live", "delayed", "snapshot", "stale", "unavailable"].includes(value)) return value;
-  if (value === "proxy" || value === "cached") return "stale";
+  if (["live", "delayed", "cached", "snapshot", "stale", "unavailable"].includes(value)) return value;
+  if (value === "proxy") return "stale";
   if (value === "fallback") return "snapshot";
   if (String(status).toUpperCase() === "LIVE") return "live";
   if (String(status).toUpperCase() === "DELAYED") return "delayed";
@@ -201,23 +227,64 @@ function freshnessFromUpdatedAt(updatedAt, status) {
   return `${Math.round(seconds / 3600)}h ago`;
 }
 
+function ageMs(updatedAt, now = Date.now()) {
+  const value = Number(updatedAt || 0);
+  return Number.isFinite(value) && value > 0 ? Math.max(0, now - value) : null;
+}
+
+function sourceStatusFrom(dataQuality, updatedAt, hasError = false) {
+  const q = normalizeDataQuality(dataQuality);
+  const age = ageMs(updatedAt);
+  if (q === "live") return "LIVE";
+  if (q === "delayed") return "FRESH";
+  if (q === "cached") return age !== null && age <= LAST_KNOWN_GOOD_TTL_MS ? "CACHED" : "STALE";
+  if (q === "stale") return age !== null && age <= LAST_KNOWN_GOOD_TTL_MS ? "CACHED" : "STALE";
+  if (q === "snapshot") return "ERROR";
+  return hasError ? "ERROR" : "ERROR";
+}
+
+function sourcePlanFor(key) {
+  return SOURCE_PLANS[key] || { primary: sourceCatalog[key] || key, backups: ["lastKnownGood cache"] };
+}
+
+function hasUsableData(data) {
+  if (Array.isArray(data)) return data.length > 0;
+  if (!data || typeof data !== "object") return data !== null && data !== undefined;
+  return Object.values(data).some((value) => Array.isArray(value) ? value.length > 0 : value && typeof value === "object" ? Object.keys(value).length > 0 : value !== null && value !== undefined);
+}
+
 function source(key, data, status, generatedAt, label = sourceCatalog[key], extra = {}) {
   const dataQuality = normalizeDataQuality(status);
   const updatedAt = Number(extra.updatedAt || generatedAt);
   const confidence = extra.confidence || confidenceFromStatus(dataQuality);
   const fallback = Boolean(extra.fallback ?? (dataQuality === "snapshot" || dataQuality === "stale"));
+  const plan = extra.sourcePlan || sourcePlanFor(key);
+  const hasError = Boolean(extra.error);
+  const sourceStatus = extra.sourceStatus || sourceStatusFrom(dataQuality, updatedAt, hasError);
   return {
     data,
     status: dataQuality,
+    sourceStatus,
+    fetchStatus: sourceStatus,
     source: label,
     dataQuality,
     isTradable: isTradableQuality(dataQuality),
     label,
     updatedAt,
+    fetchedAt: extra.fetchedAt || generatedAt,
+    publishedAt: extra.publishedAt || extra.updatedAt || generatedAt,
     timestamp: nowIso(updatedAt),
     latency: Number.isFinite(Number(extra.latency)) ? Number(extra.latency) : null,
     error: extra.error || null,
     provider: extra.provider || null,
+    sourcePlan: plan,
+    primarySource: plan.primary,
+    backupSources: plan.backups,
+    cachePolicy: {
+      type: "lastKnownGood",
+      staleAfterMs: LAST_KNOWN_GOOD_TTL_MS,
+      staleAfter: "6h"
+    },
     indices: Array.isArray(extra.indices) ? extra.indices : undefined,
     quotes: Array.isArray(extra.quotes) ? extra.quotes : undefined,
     participatesInScoring: typeof extra.participatesInScoring === "boolean" ? extra.participatesInScoring : undefined,
@@ -229,38 +296,62 @@ function source(key, data, status, generatedAt, label = sourceCatalog[key], extr
 
 function cachedSource(key, cached) {
   const updatedAt = cached.updatedAt || Date.now();
+  const stale = ageMs(updatedAt) !== null && ageMs(updatedAt) > LAST_KNOWN_GOOD_TTL_MS;
   return {
     ...cached,
-    status: "stale",
+    status: stale ? "stale" : "cached",
+    sourceStatus: stale ? "STALE" : "CACHED",
+    fetchStatus: stale ? "STALE" : "CACHED",
     source: cached.source || sourceCatalog[key],
-    dataQuality: "stale",
+    dataQuality: stale ? "stale" : "cached",
     isTradable: false,
+    fetchedAt: cached.fetchedAt || updatedAt,
+    publishedAt: cached.publishedAt || updatedAt,
     timestamp: cached.timestamp || nowIso(updatedAt),
     confidence: cached.confidence || "LOW",
-    freshness: freshnessFromUpdatedAt(updatedAt, "stale"),
+    freshness: freshnessFromUpdatedAt(updatedAt, stale ? "stale" : "cached"),
     fallback: true
   };
 }
 
 function fallbackSource(key, data = null) {
+  const plan = sourcePlanFor(key);
   return {
     data,
-    status: "snapshot",
+    status: "unavailable",
+    sourceStatus: "ERROR",
+    fetchStatus: "ERROR",
     source: sourceCatalog[key],
-    dataQuality: "snapshot",
+    dataQuality: "unavailable",
     isTradable: false,
     label: sourceCatalog[key],
     updatedAt: null,
-    timestamp: "snapshot only",
+    fetchedAt: null,
+    publishedAt: null,
+    timestamp: "no usable source",
     latency: null,
     confidence: "LOW",
-    freshness: "snapshot",
-    fallback: true
+    freshness: "source unavailable",
+    fallback: true,
+    sourcePlan: plan,
+    primarySource: plan.primary,
+    backupSources: plan.backups,
+    cachePolicy: {
+      type: "lastKnownGood",
+      staleAfterMs: LAST_KNOWN_GOOD_TTL_MS,
+      staleAfter: "6h"
+    }
   };
 }
 
 function keepLastGood(key, item) {
-  if (["live", "delayed"].includes(item.status) && item.data) lastGoodSources[key] = item;
+  if (["live", "delayed"].includes(item.status) && hasUsableData(item.data)) lastGoodSources[key] = item;
+  return item;
+}
+
+function stableModuleSource(key, item) {
+  if (["live", "delayed"].includes(item.status) && hasUsableData(item.data)) return keepLastGood(key, item);
+  if (lastGoodSources[key]) return cachedSource(key, lastGoodSources[key]);
   return item;
 }
 
@@ -269,8 +360,27 @@ function lastOrFallback(key, fallbackData = null) {
 }
 
 async function settleSource(key, loader, generatedAt, fallbackData = null, label) {
+  const plan = sourcePlanFor(key);
+  const maxAttempts = 2;
+  let lastError = null;
+  let loaded = null;
   try {
-    const loaded = await loader();
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        loaded = await loader({ attempt, timeoutMs: attempt === 1 ? 9000 : 12000 });
+        break;
+      } catch (error) {
+        lastError = error;
+        console.error(`${SOURCE_DEBUG_PREFIX} sourceManager attempt failed`, {
+          source: key,
+          attempt,
+          primary: plan.primary,
+          backups: plan.backups,
+          message: error?.message || String(error)
+        });
+      }
+    }
+    if (!loaded) throw lastError || new Error("source_failed");
     return keepLastGood(
       key,
       source(
@@ -289,19 +399,28 @@ async function settleSource(key, loader, generatedAt, fallbackData = null, label
           confidence: loaded.confidence,
           freshness: loaded.freshness,
           fallback: loaded.fallback,
-          updatedAt: loaded.updatedAt
+          updatedAt: loaded.updatedAt,
+          sourcePlan: plan,
+          fetchedAt: generatedAt,
+          publishedAt: loaded.updatedAt || generatedAt,
+          sourceStatus: loaded.sourceStatus
         }
       )
     );
   } catch (error) {
-    console.error(`${SOURCE_DEBUG_PREFIX} settleSource error`, {
+    console.error(`${SOURCE_DEBUG_PREFIX} sourceManager fallback`, {
       source: key,
+      primary: plan.primary,
+      backups: plan.backups,
       message: error?.message || String(error),
       stack: error?.stack || null
     });
     if (lastGoodSources[key]) return cachedSource(key, lastGoodSources[key]);
     const fallback = fallbackSource(key, fallbackData);
     fallback.error = error?.message || String(error);
+    fallback.sourcePlan = plan;
+    fallback.primarySource = plan.primary;
+    fallback.backupSources = plan.backups;
     return fallback;
   }
 }
@@ -316,6 +435,20 @@ async function fetchWithFallback(symbol) {
     if (alpha) return { ...alpha, dataStatus: "DELAYED" };
   } catch {}
   return null;
+}
+
+async function fetchIndexFallback(id, symbol) {
+  if (["NDX", "VIX", "TNX", "DXY", "GOLD"].includes(id)) {
+    const alphaSymbol = id === "GOLD" ? "GOLD" : id;
+    try {
+      const alpha = await fetchAlphaVantageQuote(alphaSymbol);
+      if (alpha) return { ...alpha, dataStatus: "DELAYED" };
+    } catch (error) {
+      console.error("[snapshot:index-fallback] AlphaVantage failed", { id, reason: error?.message || String(error) });
+    }
+    return null;
+  }
+  return fetchWithFallback(symbol);
 }
 
 function finnhubSymbol(symbol = "") {
@@ -335,6 +468,10 @@ function twelveDataSymbol(symbol = "") {
     "^NDX": "NDX",
     "^TNX": "TNX",
     "DX-Y.NYB": "DXY",
+    NDX: "NDX",
+    VIX: "VIX",
+    TNX: "TNX",
+    DXY: "DXY",
     GOLD: "XAU/USD",
     "GC=F": "XAU/USD"
   };
@@ -568,7 +705,7 @@ async function loadTwelveDataMarketData(symbols) {
   const token = envValue("TWELVEDATA_API_KEY");
   console.log("TWELVEDATA_API_KEY_EXISTS:", !!token);
   if (!token) return { data: [], status: "unavailable", label: "TwelveData", error: "TWELVEDATA_API_KEY is not configured" };
-  const originalSymbols = ["SPY", "QQQ", "^VIX", "DX-Y.NYB", "GC=F"];
+  const originalSymbols = ["NDX", "VIX", "DXY", "GOLD"];
   const providerSymbols = originalSymbols.map(twelveDataSymbol);
   const latencies = [];
   const rows = await Promise.all(originalSymbols.map(async (symbol, index) => {
@@ -633,14 +770,14 @@ async function fetchStooqQuote(symbol) {
 async function fetchAlphaVantageQuote(symbol) {
   const token = envValue("ALPHAVANTAGE_API_KEY");
   if (!token) return null;
-  if (symbol === "GC=F") {
+  if (symbol === "GC=F" || symbol === "GOLD") {
     const payload = await fetchJson(`https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=XAU&to_currency=USD&apikey=${encodeURIComponent(token)}`, { timeoutMs: 7000 });
     const row = payload["Realtime Currency Exchange Rate"];
     const price = Number(row?.["5. Exchange Rate"]);
     if (!Number.isFinite(price) || price <= 0) return null;
     return { symbol, price, change: 0, regularChange: 0, volume: 0, averageVolume: 0, dataStatus: "DELAYED", provider: "AlphaVantage" };
   }
-  if (symbol === "^TNX") {
+  if (symbol === "^TNX" || symbol === "TNX") {
     const payload = await fetchJson(`https://www.alphavantage.co/query?function=TREASURY_YIELD&interval=daily&maturity=10year&apikey=${encodeURIComponent(token)}`, { timeoutMs: 7000 });
     const latest = Array.isArray(payload.data) ? payload.data.find((item) => Number.isFinite(Number(item.value))) : null;
     const previous = Array.isArray(payload.data) ? payload.data.find((item) => item !== latest && Number.isFinite(Number(item.value))) : null;
@@ -649,7 +786,7 @@ async function fetchAlphaVantageQuote(symbol) {
     if (!Number.isFinite(price) || price <= 0) return null;
     return { symbol, price, change: Number.isFinite(prev) && prev > 0 ? ((price - prev) / prev) * 100 : 0, regularChange: 0, volume: 0, averageVolume: 0, dataStatus: "DELAYED", provider: "AlphaVantage" };
   }
-  const alphaSymbol = symbol === "DX-Y.NYB" ? "DXY" : symbol.replace(/^\^/, "");
+  const alphaSymbol = symbol === "DX-Y.NYB" ? "DXY" : symbol === "GOLD" ? "XAUUSD" : symbol.replace(/^\^/, "");
   if (!/^[A-Z.]+$/.test(alphaSymbol)) return null;
   const payload = await fetchJson(`https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(alphaSymbol)}&apikey=${encodeURIComponent(token)}`, { timeoutMs: 7000 });
   const row = payload["Global Quote"];
@@ -684,25 +821,77 @@ function normalizeTradingViewQuote(item = {}) {
   };
 }
 
-function mergeMarketQuotes({ symbols, marketEntries, finnhubRows = [], twelveDataRows = [], tradingViewRows = [], fallbackMarketMap = new Map(), fallbackStockMap = new Map() }) {
+function fredMarketRows(fredRows = []) {
+  const dgs10 = (fredRows || []).find((item) => item.id === "DGS10");
+  const price = Number(dgs10?.value);
+  if (!Number.isFinite(price) || price <= 0) return [];
+  return [{
+    symbol: "^TNX",
+    price,
+    change: 0,
+    regularChange: 0,
+    volume: 0,
+    averageVolume: 0,
+    dataStatus: "DELAYED",
+    provider: "FRED"
+  }];
+}
+
+function alphaMacroMarketRows(alphaMacro = null) {
+  const dgs10 = Array.isArray(alphaMacro?.dgs10?.data)
+    ? alphaMacro.dgs10.data.find((item) => Number.isFinite(Number(item.value)))
+    : null;
+  const previous = Array.isArray(alphaMacro?.dgs10?.data)
+    ? alphaMacro.dgs10.data.find((item) => item !== dgs10 && Number.isFinite(Number(item.value)))
+    : null;
+  const price = Number(dgs10?.value);
+  const prev = Number(previous?.value);
+  if (!Number.isFinite(price) || price <= 0) return [];
+  return [{
+    symbol: "^TNX",
+    price,
+    change: Number.isFinite(prev) && prev > 0 ? ((price - prev) / prev) * 100 : 0,
+    regularChange: 0,
+    volume: 0,
+    averageVolume: 0,
+    dataStatus: "DELAYED",
+    provider: "AlphaVantage"
+  }];
+}
+
+function mergeMarketQuotes({ symbols, marketEntries, finnhubRows = [], twelveDataRows = [], tradingViewRows = [], fredRows = [], alphaMacro = null, fallbackMarketMap = new Map(), fallbackStockMap = new Map() }) {
   const staleIndices = lastGoodIndices();
   const staleQuotes = lastGoodQuotes();
   const snapshotById = new Map(staleIndices.map((item) => [item.id, item]));
   const snapshotBySymbol = new Map(staleQuotes.map((item) => [item.symbol, item]));
   const finnhubMap = new Map((finnhubRows || []).map((item) => [item.symbol, item]));
   const twelveMap = new Map((twelveDataRows || []).map((item) => [item.symbol, item]));
+  const fredMap = new Map(fredMarketRows(fredRows).map((item) => [item.symbol, item]));
+  const alphaMacroMap = new Map(alphaMacroMarketRows(alphaMacro).map((item) => [item.symbol, item]));
   const tradingViewMap = new Map((tradingViewRows || []).map((item) => [item.symbol, normalizeTradingViewQuote(item)]).filter(([, row]) => row));
 
-  // Index priority: TwelveData -> Finnhub -> Stooq/Alpha -> cached snapshot
+  // Index priority:
+  // SPY/QQQ: Finnhub remains untouched.
+  // NDX/VIX/DXY/GOLD: TwelveData -> Alpha/Stooq -> cached snapshot.
+  // TNX: FRED DGS10 -> AlphaVantage TREASURY_YIELD -> cached snapshot.
   const indices = marketEntries.map(([id, providerSymbol]) => {
     const fallback = snapshotById.get(id);
-    const row = finnhubMap.get(providerSymbol) || finnhubMap.get(id) || twelveMap.get(providerSymbol) || twelveMap.get(id) || fallbackMarketMap.get(id);
+    const indexRows = {
+      SPY: finnhubMap.get("SPY") || twelveMap.get("SPY") || fallbackMarketMap.get("SPY"),
+      QQQ: finnhubMap.get("QQQ") || twelveMap.get("QQQ") || fallbackMarketMap.get("QQQ"),
+      NDX: twelveMap.get("^NDX") || twelveMap.get("NDX") || fallbackMarketMap.get("NDX"),
+      VIX: twelveMap.get("^VIX") || twelveMap.get("VIX") || fallbackMarketMap.get("VIX"),
+      TNX: fredMap.get("^TNX") || alphaMacroMap.get("^TNX") || fallbackMarketMap.get("TNX"),
+      DXY: twelveMap.get("DX-Y.NYB") || twelveMap.get("DXY") || fallbackMarketMap.get("DXY"),
+      GOLD: twelveMap.get("GC=F") || twelveMap.get("GOLD") || fallbackMarketMap.get("GOLD")
+    };
+    const row = indexRows[id] || finnhubMap.get(providerSymbol) || finnhubMap.get(id) || twelveMap.get(providerSymbol) || twelveMap.get(id) || fallbackMarketMap.get(id);
     if (!row) {
       if (fallback) return { ...fallback, note: "STALE：实时行情源暂不可用，使用最近有效缓存。", status: "STALE", dataQuality: "stale", isTradable: false };
-      return metric(id, MARKET_INDEX_META[id] || id, null, null, "UNAVAILABLE：无可用指数数据。", "UNAVAILABLE");
+      return { ...metric(id, MARKET_INDEX_META[id] || id, null, null, "ERROR：暂无可用指数源，等待 lastKnownGood 缓存恢复。", "SNAPSHOT"), fallback: true, error: "source_failed" };
     }
     const baseName = fallback?.name || MARKET_INDEX_META[id] || id;
-    return metric(id, baseName, row.price ?? fallback?.value ?? null, row.change ?? fallback?.change ?? null, `${row.dataStatus}：${row.provider || "行情适配器"}。`, row.dataStatus);
+    return metric(id, baseName, row.price ?? fallback?.value ?? null, row.change ?? fallback?.change ?? null, `${row.dataStatus} · ${row.provider || "行情适配器"}。`, row.dataStatus);
   });
 
   // Stock priority: Finnhub -> TwelveData -> TradingView -> Stooq/Alpha -> cached snapshot
@@ -729,7 +918,7 @@ async function loadMarketData(rawSymbols, providerRows = {}) {
   const symbols = cleanSymbols(rawSymbols).split(",").filter(Boolean);
   const quoteSymbols = symbols.filter((item) => !Object.values(MARKET_SYMBOLS).includes(item) && !item.startsWith("^")).slice(0, 40);
   const [fallbackMarketRows, fallbackStockRows] = await Promise.all([
-    Promise.all(marketEntries.map(async ([id, symbol]) => [id, await fetchWithFallback(symbol)])),
+    Promise.all(marketEntries.map(async ([id, symbol]) => [id, await fetchIndexFallback(id, symbol)])),
     Promise.all(quoteSymbols.map((symbol) => fetchWithFallback(symbol).then((row) => [symbol, row]).catch(() => [symbol, null])))
   ]);
   const fallbackMarketMap = new Map(fallbackMarketRows.map(([id, row]) => [id, row]));
@@ -740,6 +929,8 @@ async function loadMarketData(rawSymbols, providerRows = {}) {
     finnhubRows: providerRows.finnhub || [],
     twelveDataRows: providerRows.twelveData || [],
     tradingViewRows: providerRows.tradingView || [],
+    fredRows: providerRows.fred || [],
+    alphaMacro: providerRows.alphaMacro || null,
     fallbackMarketMap,
     fallbackStockMap
   });
@@ -1255,6 +1446,60 @@ function deriveSectors(quotes) {
   }).sort((a, b) => b.score - a.score).slice(0, 6);
 }
 
+function buildSectorHeat({ quotes = [], tradingView = [], marketStatus = "unavailable" } = {}) {
+  const quoteMap = new Map((quotes || []).filter((item) => item?.symbol).map((item) => [item.symbol, item]));
+  const tvMap = new Map((tradingView || []).filter((item) => item?.symbol).map((item) => [item.symbol, item]));
+  const groups = [
+    ["Technology", ["XLK", "MSFT", "AAPL", "META"]],
+    ["Semiconductor", ["SMH", "SOXX", "NVDA", "AVGO", "AMD", "MRVL"]],
+    ["AI Growth", ["NVDA", "AVGO", "AMD", "PLTR", "MSFT", "META"]],
+    ["Financials", ["XLF", "JPM"]],
+    ["Energy", ["XLE", "XOM", "CVX"]],
+    ["Healthcare", ["XLV", "LLY"]],
+    ["Consumer", ["XLY", "TSLA", "AMZN", "DASH"]],
+    ["Small Caps", ["IWM"]],
+    ["Crypto", ["COIN", "MSTR", "IBIT"]]
+  ];
+  const sectorRows = groups.map(([sector, symbols]) => {
+    const observations = symbols.map((symbol) => {
+      const quoteRow = quoteMap.get(symbol);
+      const tvRow = tvMap.get(symbol);
+      const change = Number(quoteRow?.preMarketChangePercent ?? quoteRow?.change ?? tvRow?.change ?? 0);
+      const rv = Number(quoteRow?.relativeVolume ?? quoteRow?.volumeRatio ?? 1);
+      const tvScore = Number(tvRow?.score || 50);
+      return quoteRow || tvRow ? { symbol, change, rv, tvScore } : null;
+    }).filter(Boolean);
+    if (!observations.length) return null;
+    const change = avg(observations.map((item) => item.change));
+    const rv = avg(observations.map((item) => item.rv || 1));
+    const tvScore = avg(observations.map((item) => item.tvScore || 50));
+    const score = clamp(Math.round(50 + change * 8 + Math.min(rv, 3) * 7 + (tvScore - 50) * 0.25 + sectorThemeBonus(sector)));
+    const leaders = observations.sort((a, b) => b.change - a.change).slice(0, 3).map((item) => item.symbol);
+    return {
+      sector,
+      score,
+      change,
+      relativeVolume: rv,
+      leaders,
+      summary: `${leaders.join(" / ")} 驱动 ${sector} 热度，均值涨跌 ${change.toFixed(2)}%。`
+    };
+  }).filter(Boolean).sort((a, b) => b.score - a.score);
+  const strongestSectors = sectorRows.slice(0, 5);
+  const weakestSectors = [...sectorRows].sort((a, b) => a.score - b.score).slice(0, 3);
+  const status = ["live", "delayed"].includes(String(marketStatus).toLowerCase()) && sectorRows.length ? marketStatus : sectorRows.length ? "delayed" : "unavailable";
+  const leader = strongestSectors[0]?.sector || "无明显主线";
+  const laggard = weakestSectors[0]?.sector || "无明显弱项";
+  return {
+    status,
+    source: "Sector Heat Engine",
+    confidence: status === "live" ? "HIGH" : status === "delayed" ? "MEDIUM" : "LOW",
+    strongestSectors,
+    weakestSectors,
+    rotationType: sectorRows.length ? `${leader} 领先 / ${laggard} 落后` : "NO_VALID_SECTOR_DATA",
+    explanation: sectorRows.length ? `${leader} 相对占优，${laggard} 承压，基于实时/延迟行情与 TradingView 动量推断。` : "暂无可用板块源，使用缓存策略维持结构。"
+  };
+}
+
 function deriveMovers(quotes, news = []) {
   const sourceQuotes = (quotes && quotes.length ? quotes : [])
     .filter((item) => Number.isFinite(Number(item.preMarketChange ?? item.regularMarketChangePercent)));
@@ -1276,6 +1521,80 @@ function deriveMovers(quotes, news = []) {
     bias: change >= 0 ? "利好" : "利空"
   };
   });
+}
+
+function extractNewsCatalysts(news = [], earningsEvents = [], macroItems = []) {
+  const fromNews = (news || [])
+    .filter((item) => item?.ticker || /fed|cpi|treasury|rate|inflation|vix|nasdaq|s&p|dow|macro/i.test(`${item?.title || ""} ${item?.summary || ""}`))
+    .map((item) => {
+      const text = `${item.title || item.originalTitle || ""} ${item.summary || ""}`;
+      const type = detectCatalystType(text);
+      return {
+        symbol: item.ticker || "MACRO",
+        catalystType: type,
+        sentiment: item.bias || item.tone || classifyCatalystSentiment(text),
+        importance: catalystImportance(type, text),
+        chineseSummary: item.summary || rewriteNewsSummary(item.ticker, type, item.bias || "NEUTRAL"),
+        reason: item.title || item.originalTitle || "结构化新闻催化"
+      };
+    });
+  const fromEarnings = (earningsEvents || []).slice(0, 8).map((item) => ({
+    symbol: item.symbol,
+    catalystType: "Earnings",
+    sentiment: "NEUTRAL",
+    importance: item.importance || 60,
+    chineseSummary: `${item.symbol} 财报窗口临近，注意开盘波动与隐含波动率变化。`,
+    reason: item.catalystTag || "earnings calendar"
+  }));
+  const fromMacro = (macroItems || []).slice(0, 4).map((item) => ({
+    symbol: "MACRO",
+    catalystType: "Macro",
+    sentiment: String(item.tone || "").toUpperCase() === "BEARISH" ? "BEARISH" : String(item.tone || "").toUpperCase() === "BULLISH" ? "BULLISH" : "NEUTRAL",
+    importance: 55,
+    chineseSummary: item.summary || item.title || "宏观变量进入盘前定价。",
+    reason: item.title || "macro headline"
+  }));
+  return [...fromNews, ...fromEarnings, ...fromMacro]
+    .filter((item) => item.symbol && item.catalystType)
+    .sort((a, b) => Number(b.importance || 0) - Number(a.importance || 0))
+    .slice(0, 20);
+}
+
+function detectCatalystType(text = "") {
+  const lower = text.toLowerCase();
+  if (/earnings|revenue|eps|results|report/.test(lower)) return "Earnings";
+  if (/guidance|forecast|outlook/.test(lower)) return "Guidance";
+  if (/upgrade|downgrade|price target|rating|analyst/.test(lower)) return "Analyst Rating";
+  if (/ai|nvidia|gpu|data center|semiconductor|chip/.test(lower)) return "AI Theme";
+  if (/fed|cpi|treasury|yield|rates|inflation|macro/.test(lower)) return "Macro";
+  if (/fda|trial|drug|phase/.test(lower)) return "FDA";
+  if (/merger|acquisition|m&a|buyout/.test(lower)) return "M&A";
+  if (/sec|lawsuit|investigation|regulation|tariff/.test(lower)) return "Regulation";
+  if (/meme|reddit|wsb|wallstreetbets/.test(lower)) return "Meme";
+  return "Unknown";
+}
+
+function classifyCatalystSentiment(text = "") {
+  const lower = text.toLowerCase();
+  if (/beat|raise|upgrade|growth|demand|contract|approval|launch/.test(lower)) return "BULLISH";
+  if (/miss|cut|downgrade|lawsuit|investigation|weak|delay|warning|loss/.test(lower)) return "BEARISH";
+  return "NEUTRAL";
+}
+
+function catalystImportance(type, text = "") {
+  const base = {
+    Earnings: 78,
+    Guidance: 76,
+    "Analyst Rating": 70,
+    "AI Theme": 68,
+    Macro: 66,
+    FDA: 70,
+    "M&A": 74,
+    Regulation: 65,
+    Meme: 55,
+    Unknown: 45
+  }[type] || 45;
+  return clamp(base + (/nvda|spy|qqq|tsla|amd|pltr|coin|mstr/i.test(text) ? 6 : 0));
 }
 
 function deriveOptionsSignalSystem(quotes, context = {}) {
@@ -1300,8 +1619,10 @@ function deriveOptionsSignalSystem(quotes, context = {}) {
   const watchOnly = signals.filter((item) => item.bucket === "WATCH").slice(0, 4);
   const avoidChasing = signals.filter((item) => item.bucket === "AVOID").slice(0, 4);
   return {
-    status: signals.length ? "delayed" : "unavailable",
+    status: signals.length ? (context.marketStatus === "live" && context.relativeVolumeStatus === "live" ? "live" : "delayed") : "unavailable",
     source: "Options Signal System",
+    confidence: signals.length ? (context.marketStatus === "live" ? "MEDIUM" : "LOW") : "LOW",
+    label: "Options Signal Proxy",
     callCandidates,
     putCandidates,
     watchOnly,
@@ -1433,8 +1754,11 @@ function calculateOptionsSignalScore(stock, context = {}) {
     direction,
     type: direction,
     relativeVolume,
+    reason: optionsSignalSummary(stock, bucket, { preChange, relativeVolume, qqq, spy, vix, newsBias }),
     summary: optionsSignalSummary(stock, bucket, { preChange, relativeVolume, qqq, spy, vix, newsBias }),
-    risk: optionsSignalRisk(bucket, { preChange, relativeVolume, vix })
+    risk: optionsSignalRisk(bucket, { preChange, relativeVolume, vix }),
+    setup: optionsSignalSetup(bucket, stock, { relativeVolume, qqq, spy }),
+    invalidation: optionsSignalInvalidation(bucket, { qqq, spy, vix })
   };
 }
 
@@ -1460,6 +1784,19 @@ function optionsSignalRisk(bucket, data) {
   return "风险：仅为免费数据代理信号，不是真实期权大单。";
 }
 
+function optionsSignalSetup(bucket, stock, data) {
+  if (bucket === "CALL") return "开盘后站上 VWAP 且 RVOL 延续扩张，再考虑顺势 CALL 观察。";
+  if (bucket === "PUT") return "跌破开盘区间或反抽 VWAP 失败，再考虑 PUT / hedge 观察。";
+  if (bucket === "AVOID") return "等待价格回到 VWAP 附近重新确认，不追第一波。";
+  return "仅加入观察名单，等待价格、量能与指数方向同步。";
+}
+
+function optionsSignalInvalidation(bucket, data) {
+  if (bucket === "CALL") return "QQQ 转弱或标的跌回 VWAP 下方，CALL 方向失效。";
+  if (bucket === "PUT") return "QQQ/SPY 同步转强或 VIX 回落，PUT 方向降权。";
+  return "无量突破、价量背离或指数反向时取消交易计划。";
+}
+
 function calculateRiskRegime(indices) {
   if (!Array.isArray(indices) || !indices.length) {
     return { mode: "DATA_UNAVAILABLE", score: null, status: "UNAVAILABLE", reason: "insufficient_realtime_indices" };
@@ -1469,9 +1806,10 @@ function calculateRiskRegime(indices) {
   const vix = byId.VIX?.change || 0;
   const dxy = byId.DXY?.change || 0;
   const tnx = byId.TNX?.change || 0;
+  const gold = byId.GOLD?.change || 0;
   if (qqq > 0 && vix < 0 && dxy <= 0.15 && Math.abs(tnx) < 1.2) return { mode: "Risk-On", score: 72 };
   if (vix > 0 && dxy > 0 && tnx > 0 && qqq < 0) return { mode: "Risk-Off", score: 34 };
-  const score = clamp(Math.round(50 + qqq * 10 - vix * 4 - Math.max(0, dxy) * 4 - Math.max(0, tnx) * 2));
+  const score = clamp(Math.round(50 + qqq * 10 - vix * 4 - Math.max(0, dxy) * 4 - Math.max(0, tnx) * 2 - Math.max(0, gold) * 1.2));
   return { mode: score >= 56 ? "Risk-On" : score <= 44 ? "Risk-Off" : "Neutral", score };
 }
 
@@ -1483,7 +1821,7 @@ export async function buildSnapshot(req) {
     ALPHAVANTAGE_API_KEY: !!envValue("ALPHAVANTAGE_API_KEY"),
     FRED_API_KEY: !!envValue("FRED_API_KEY")
   });
-  const defaultSymbols = "SPY,QQQ,NVDA,AMD,AVGO,MRVL,MSFT,AMZN,META,TSLA,PLTR,ORCL,CRWD,COIN,MSTR,DASH,CSCO,LLY,AAPL";
+  const defaultSymbols = "SPY,QQQ,NVDA,AMD,AVGO,MRVL,MSFT,AMZN,META,TSLA,PLTR,ORCL,CRWD,COIN,MSTR,DASH,CSCO,LLY,AAPL,XLK,SMH,SOXX,XLF,XLE,XLV,XLY,IWM,IBIT";
   const symbols = cleanSymbols(req?.query?.symbols || defaultSymbols);
   const marketSymbols = `${Object.values(MARKET_SYMBOLS).join(",")},${symbols}`;
   const finnhubProbe = await loadFinnhubStrictProbe();
@@ -1509,7 +1847,9 @@ export async function buildSnapshot(req) {
   const marketData = await settleSource("marketData", () => loadMarketData(symbols, {
     finnhub: finnhubProbe.quotes || [],
     twelveData: twelveData.data || [],
-    tradingView: tradingView.data || []
+    tradingView: tradingView.data || [],
+    fred: fredMacro.data || [],
+    alphaMacro: alphaMacro.data || null
   }), generatedAt, { indices: lastGoodIndices(), quotes: lastGoodQuotes() });
   const [reddit, benzingaNews, finnhubNews, marketWatchNews, reutersNews, secNews] = await Promise.all([
     settleSource("reddit", loadReddit, generatedAt, { score: null, tone: "UNAVAILABLE", mentions: [], summary: "数据源不可用。" }),
@@ -1535,7 +1875,27 @@ export async function buildSnapshot(req) {
   const selectedNewsSource = newsCandidates.find((item) => Array.isArray(item.source?.data) && item.source.data.length) || null;
   const news = selectedNewsSource ? selectedNewsSource.source.data : [];
   console.log("NEWS SOURCE USED:", selectedNewsSource ? selectedNewsSource.name : "none");
-  const sectorData = deriveSectors(quotes);
+  let sectorHeatData = { status: "unavailable", source: "Sector Heat Engine", confidence: "LOW", strongestSectors: [], weakestSectors: [], rotationType: "NO_VALID_SECTOR_DATA", explanation: "暂无可用板块源，使用缓存策略维持结构。", error: "not_generated" };
+  let sectorData = [];
+  try {
+    sectorHeatData = buildSectorHeat({
+      quotes,
+      tradingView: tradingView.data || [],
+      marketStatus: marketData.status || "unavailable"
+    });
+    sectorData = sectorHeatData.strongestSectors?.length
+      ? sectorHeatData.strongestSectors.map((item) => ({
+          sector: item.sector,
+          score: item.score,
+          change: item.change,
+          summary: item.summary
+        }))
+      : deriveSectors(quotes);
+  } catch (error) {
+    console.error("[SNAPSHOT ENGINE ERROR] sectorHeat", error?.message || error);
+    sectorHeatData.error = error?.message || "source_failed";
+    sectorData = deriveSectors(quotes);
+  }
   const moverData = deriveMovers(quotes, news);
   const relativeVolumeLayer = await settleSource("relativeVolume", () => buildRelativeVolumeLayer({
     quotes,
@@ -1548,20 +1908,35 @@ export async function buildSnapshot(req) {
     news,
     marketStatus: marketData.status || "unavailable"
   });
-  const premarketMomentumLayer = source("premarketMomentum", premarketMomentumData, premarketMomentumData.status, generatedAt, "Premarket Momentum Engine", {
+  const premarketMomentumLayer = stableModuleSource("premarketMomentum", source("premarketMomentum", premarketMomentumData, premarketMomentumData.status, generatedAt, "Premarket Momentum Engine", {
     confidence: premarketMomentumData.confidence,
     fallback: false,
-    error: premarketMomentumData.error || null
-  });
-  const optionsSignalData = quotes.length ? deriveOptionsSignalSystem(quotes, {
-    sectors: sectorData,
-    tradingView: tradingView.data || [],
-    news,
-    relativeVolume: relativeVolumeLayer.data?.leaders || [],
-    momentum: premarketMomentumData.leaders || [],
-    indices: marketData.data?.indices || [],
-    marketStatus: marketData.status || "unavailable"
-  }) : { status: "unavailable", callCandidates: [], putCandidates: [], watchOnly: [], avoidChasing: [], cards: [], error: "no_realtime_quotes" };
+    error: premarketMomentumData.error || null,
+    sourcePlan: sourcePlanFor("premarketMomentum")
+  }));
+  let optionsSignalData = { status: "unavailable", callCandidates: [], putCandidates: [], watchOnly: [], avoidChasing: [], cards: [], error: "no_realtime_quotes" };
+  try {
+    optionsSignalData = quotes.length ? deriveOptionsSignalSystem(quotes, {
+      sectors: sectorData,
+      sectorHeat: sectorHeatData,
+      tradingView: tradingView.data || [],
+      news,
+      relativeVolume: relativeVolumeLayer.data?.leaders || [],
+      relativeVolumeStatus: relativeVolumeLayer.status,
+      momentum: premarketMomentumData.leaders || [],
+      indices: marketData.data?.indices || [],
+      marketStatus: marketData.status || "unavailable"
+    }) : optionsSignalData;
+  } catch (error) {
+    console.error("[SNAPSHOT ENGINE ERROR] optionsSignals", error?.message || error);
+    optionsSignalData.error = error?.message || "source_failed";
+  }
+  let newsCatalysts = [];
+  try {
+    newsCatalysts = extractNewsCatalysts(news, earningsLayer.data?.events || [], []);
+  } catch (error) {
+    console.error("[SNAPSHOT ENGINE ERROR] newsCatalysts", error?.message || error);
+  }
   const riskRegime = calculateRiskRegime(marketData.data?.indices || []);
   const marketBreadthData = buildMarketBreadth({
     quotes,
@@ -1575,8 +1950,8 @@ export async function buildSnapshot(req) {
     premarketScanner = runPremarketScanner({
       quotes,
       news,
-      earnings: earningsLayer.data?.events || [],
-      insider: insiderLayer.data?.signals || [],
+      earnings: [],
+      insider: [],
       relativeVolume: relativeVolumeLayer.data?.leaders || []
     });
   } catch (error) {
@@ -1589,41 +1964,65 @@ export async function buildSnapshot(req) {
       scanner: premarketScanner,
       breadth: marketBreadthLayer.data || marketBreadthData,
       risk: riskRegime,
-      earnings: earningsLayer.data?.events || [],
-      insider: insiderLayer.data?.signals || [],
+      earnings: [],
+      insider: [],
       relativeVolume: relativeVolumeLayer.data?.leaders || []
     });
   } catch (error) {
     console.error("[SNAPSHOT ENGINE ERROR] signalEngine", error?.message || error);
   }
 
-  const finviz = keepLastGood("finviz", source("finviz", sectorData, sectorData.length ? "delayed" : "unavailable", generatedAt, "Sector Heat Proxy", {
-    error: sectorData.length ? null : "source_data_unavailable"
+  const finviz = stableModuleSource("finviz", source("finviz", sectorData, sectorData.length ? "delayed" : "unavailable", generatedAt, "Sector Heat Proxy", {
+    error: sectorData.length ? null : "source_data_unavailable",
+    confidence: sectorHeatData.confidence,
+    fallback: false,
+    sourcePlan: sourcePlanFor("sectorHeat")
   }));
   const aggregateNewsStatus = selectedNewsSource ? selectedNewsSource.source.status || "delayed" : "unavailable";
   const aggregateNewsConfidence = selectedNewsSource?.source?.confidence || (aggregateNewsStatus === "live" ? "HIGH" : aggregateNewsStatus === "delayed" ? "MEDIUM" : "LOW");
-  const benzinga = keepLastGood("benzinga", source("benzinga", { movers: moverData, news }, aggregateNewsStatus, generatedAt, "News Aggregator", {
+  const benzinga = stableModuleSource("benzinga", source("benzinga", { movers: moverData, news }, aggregateNewsStatus, generatedAt, "News Aggregator", {
     error: selectedNewsSource ? null : "no_realtime_news",
     confidence: aggregateNewsConfidence,
-    fallback: !selectedNewsSource
+    fallback: !selectedNewsSource,
+    sourcePlan: sourcePlanFor("newsAggregator")
   }));
-  const unusualWhales = keepLastGood("unusualWhales", source("unusualWhales", optionsSignalData, optionsSignalData.cards?.length ? "delayed" : "unavailable", generatedAt, "Options Signal System", {
-    error: optionsSignalData.cards?.length ? null : (optionsSignalData.error || "insufficient_realtime_quotes")
+  const unusualWhales = stableModuleSource("unusualWhales", source("unusualWhales", optionsSignalData, optionsSignalData.cards?.length ? optionsSignalData.status : "unavailable", generatedAt, "Options Signal System", {
+    error: optionsSignalData.cards?.length ? null : (optionsSignalData.error || "insufficient_realtime_quotes"),
+    confidence: optionsSignalData.confidence,
+    sourcePlan: sourcePlanFor("optionsSignals")
   }));
-  const xMacro = source("xMacro", [
+  const xMacro = stableModuleSource("xMacro", source("xMacro", [
     { source: "Macro Monitor", title: `${riskRegime.mode} 结构监控`, summary: riskRegime.mode === "Risk-On" ? "QQQ、VIX、DXY 与 TNX 组合支持科技风险偏好。" : "宏观变量仍需观察，避免无量追高。", tone: riskRegime.mode === "Risk-Off" ? "bearish" : "bullish" }
-  ], "delayed", generatedAt, "Macro Risk Proxy");
+  ], "delayed", generatedAt, "Macro Risk Proxy", {
+    sourcePlan: sourcePlanFor("xMacro")
+  }));
   const normalizedMarketDataSource = {
     ...marketData,
     provider: marketData.provider || marketData.data?.provider || "Fallback Cache",
     indices: marketData.indices || marketData.data?.indices || [],
     quotes: marketData.quotes || marketData.data?.quotes || []
   };
-  const newsAggregator = source("newsAggregator", { movers: moverData, news }, aggregateNewsStatus, generatedAt, "News Aggregator", {
+  const newsAggregator = stableModuleSource("newsAggregator", source("newsAggregator", { movers: moverData, news }, aggregateNewsStatus, generatedAt, "News Aggregator", {
     error: selectedNewsSource ? null : "no_realtime_news",
     confidence: aggregateNewsConfidence,
-    fallback: !selectedNewsSource
-  });
+    fallback: !selectedNewsSource,
+    sourcePlan: sourcePlanFor("newsAggregator")
+  }));
+  const sectorHeatSource = stableModuleSource("sectorHeat", source("sectorHeat", sectorHeatData, sectorHeatData.status, generatedAt, "Sector Heat Engine", {
+    confidence: sectorHeatData.confidence,
+    error: sectorHeatData.error || null,
+    sourcePlan: sourcePlanFor("sectorHeat")
+  }));
+  const newsCatalystsSource = stableModuleSource("newsCatalysts", source("newsCatalysts", newsCatalysts, newsCatalysts.length ? aggregateNewsStatus : "unavailable", generatedAt, "News Catalyst Engine", {
+    confidence: newsCatalysts.length ? aggregateNewsConfidence : "LOW",
+    error: newsCatalysts.length ? null : "no_realtime_catalysts",
+    sourcePlan: sourcePlanFor("newsAggregator")
+  }));
+  const optionsSignalsSource = stableModuleSource("optionsSignals", source("optionsSignals", optionsSignalData, optionsSignalData.status, generatedAt, "Options Signal Proxy", {
+    confidence: optionsSignalData.confidence,
+    error: optionsSignalData.error || null,
+    sourcePlan: sourcePlanFor("optionsSignals")
+  }));
   let confidenceScore = { dataConfidence: "LOW", signalConfidence: "LOW", tradeConfidence: "LOW", score: 0, detail: [] };
   try {
     confidenceScore = buildConfidenceScore({
@@ -1632,7 +2031,9 @@ export async function buildSnapshot(req) {
       marketBreadth: marketBreadthLayer,
       tradingView,
       relativeVolume: relativeVolumeLayer,
-      newsAggregator
+      sectorHeat: sectorHeatSource,
+      newsCatalysts: newsCatalystsSource,
+      optionsSignals: optionsSignalsSource
     });
   } catch (error) {
     console.error("[SNAPSHOT ENGINE ERROR] confidenceScore", error?.message || error);
@@ -1732,6 +2133,9 @@ export async function buildSnapshot(req) {
     indices: normalizedMarketDataSource.data?.indices || normalizedMarketDataSource.indices || [],
     breadth: marketBreadthLayer.data || marketBreadthData || {},
     sectors: sectorData,
+    sectorHeat: sectorHeatSource.data || sectorHeatData,
+    newsCatalysts: newsCatalystsSource.data || newsCatalysts,
+    optionsSignals: optionsSignalsSource.data || optionsSignalData,
     premarket: {
       movers: moverData,
       momentum: premarketMomentumData,
@@ -1754,6 +2158,7 @@ export async function buildSnapshot(req) {
       earnings: earningsLayer.data || { events: [] },
       insider: insiderLayer.data || { signals: [] },
       relativeVolume: relativeVolumeLayer.data || { leaders: [] },
+      sectorHeat: sectorHeatSource.data || sectorHeatData,
       premarketMomentum: premarketMomentumData,
       institutionalBehavior: {
         insider: insiderLayer.data?.signals || insider.data || [],
@@ -1763,9 +2168,11 @@ export async function buildSnapshot(req) {
       newsCatalyst: {
         topSource: selectedNewsSource ? selectedNewsSource.name : "none",
         total: news.length,
+        catalysts: newsCatalystsSource.data || newsCatalysts,
         status: selectedNewsSource ? (selectedNewsSource.source.status || "delayed") : "no_realtime_news",
         error: selectedNewsSource ? null : "no_realtime_news"
       },
+      optionsSignals: optionsSignalsSource.data || optionsSignalData,
       strategySummary,
       marketRegime,
       tradePlan,
@@ -1796,9 +2203,12 @@ export async function buildSnapshot(req) {
         finnhubEarnings: earnings,
         xMacro,
         finviz,
+        sectorHeat: sectorHeatSource,
         unusualWhales,
+        optionsSignals: optionsSignalsSource,
         benzinga,
-        newsAggregator
+        newsAggregator,
+        newsCatalysts: newsCatalystsSource
     }
   };
   console.log("[SNAPSHOT FINAL]", JSON.stringify(snapshot, null, 2));
@@ -1838,7 +2248,7 @@ export default async function handler(req, res) {
         status: "unavailable",
         provider: "Emergency Fallback",
         headline: "数据源异常",
-        strategy: "snapshot 构建失败，等待下一次刷新。",
+        strategy: "snapshot 构建失败，当前无可用缓存。",
         riskMode: "DATA_UNAVAILABLE",
         riskScore: null,
         marketRegime: "UNAVAILABLE",

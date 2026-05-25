@@ -55,7 +55,7 @@ sources.marketData = {
 
 若 Finnhub 成功，`marketData.provider = "Finnhub"`，`status = "live"`，`fallback = false`。
 若 TwelveData 成功，`marketData.provider = "TwelveData"`，`status = "delayed"`。
-最终兜底只允许使用最近一次成功缓存，并标记为 `STALE` 或 `SNAPSHOT`。
+最终兜底只允许使用最近一次成功缓存，并标记为 `CACHED` 或 `STALE`；超过 6 小时标记 `STALE`，完全没有缓存才标记 `ERROR`。
 
 ## 当前免费版数据限制
 
@@ -65,8 +65,8 @@ sources.marketData = {
 - 没有真实 Unusual Whales / Cheddar Flow / Polygon Options 级别的期权大单流。
 - 没有真实 Benzinga 授权新闻 API 时，新闻层会降级到 Finnhub / Reuters / MarketWatch / SEC；若仍无新闻，返回 `no_realtime_news`。
 - 没有 WebSocket 实时行情，免费源可能延迟、限流或间歇失败。
-- Snapshot 用于避免页面空白和保留结构参考；系统会降级为低置信度，不应视作真实实时交易确认。
-- 只有 API 完全不可用且行情为空时，系统才显示“数据不足”。
+- lastKnownGood 缓存用于避免页面空白和保留结构参考；系统会显示“最新快照 / 缓存快照 / 延迟数据 / 暂无可用源”，并降级为低置信度，不应视作真实实时交易确认。
+- 只有 API 完全不可用且没有任何最近一次有效缓存时，系统才显示 `ERROR / 暂无可用源`。
 
 ## 本地运行
 
@@ -131,7 +131,7 @@ Vercel 设置建议：
 
 ```js
 window.DASHBOARD_CONFIG = {
-  refreshSeconds: 900,
+  refreshSeconds: 300,
   endpoints: {
     snapshot: "/api/snapshot"
   }
