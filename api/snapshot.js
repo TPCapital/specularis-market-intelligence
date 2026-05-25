@@ -100,6 +100,55 @@ const MARKET_INDEX_META = {
   GOLD: "GOLD"
 };
 
+const INDEX_SOURCE_MAP = {
+  SPY: [
+    { type: "prefetch", provider: "Finnhub", symbol: "SPY", quality: "LIVE" },
+    { type: "prefetch", provider: "TwelveData", symbol: "SPY", quality: "DELAYED" },
+    { type: "yahooChart", provider: "Yahoo Chart", symbol: "SPY", quality: "DELAYED" },
+    { type: "stooq", provider: "Stooq CSV", symbol: "spy.us", quality: "DELAYED" },
+    { type: "lastKnownGood", provider: "lastKnownGood", quality: "CACHED" }
+  ],
+  QQQ: [
+    { type: "prefetch", provider: "Finnhub", symbol: "QQQ", quality: "LIVE" },
+    { type: "prefetch", provider: "TwelveData", symbol: "QQQ", quality: "DELAYED" },
+    { type: "yahooChart", provider: "Yahoo Chart", symbol: "QQQ", quality: "DELAYED" },
+    { type: "stooq", provider: "Stooq CSV", symbol: "qqq.us", quality: "DELAYED" },
+    { type: "lastKnownGood", provider: "lastKnownGood", quality: "CACHED" }
+  ],
+  NDX: [
+    { type: "yahooChart", provider: "Yahoo Chart", symbol: "^NDX", quality: "DELAYED" },
+    { type: "stooq", provider: "Stooq CSV", symbol: "^ndx", quality: "DELAYED" },
+    { type: "prefetch", provider: "TwelveData", symbol: "NDX", quality: "DELAYED" },
+    { type: "tradingViewProxy", provider: "TradingView proxy", symbol: "QQQ", quality: "DELAYED" },
+    { type: "lastKnownGood", provider: "lastKnownGood", quality: "CACHED" }
+  ],
+  VIX: [
+    { type: "yahooChart", provider: "Yahoo Chart", symbol: "^VIX", quality: "DELAYED" },
+    { type: "stooq", provider: "Stooq CSV", symbol: "^vix", quality: "DELAYED" },
+    { type: "prefetch", provider: "TwelveData", symbol: "VIX", quality: "DELAYED" },
+    { type: "lastKnownGood", provider: "lastKnownGood", quality: "CACHED" }
+  ],
+  DXY: [
+    { type: "yahooChart", provider: "Yahoo Chart", symbol: "DX-Y.NYB", quality: "DELAYED" },
+    { type: "prefetch", provider: "TwelveData", symbol: "DXY", quality: "DELAYED" },
+    { type: "alpha", provider: "AlphaVantage FX proxy", symbol: "DX-Y.NYB", quality: "DELAYED" },
+    { type: "lastKnownGood", provider: "lastKnownGood", quality: "CACHED" }
+  ],
+  TNX: [
+    { type: "prefetch", provider: "FRED", symbol: "^TNX", quality: "DELAYED" },
+    { type: "alpha", provider: "AlphaVantage TREASURY_YIELD", symbol: "^TNX", quality: "DELAYED" },
+    { type: "yahooChart", provider: "Yahoo Chart", symbol: "^TNX", quality: "DELAYED" },
+    { type: "lastKnownGood", provider: "lastKnownGood", quality: "CACHED" }
+  ],
+  GOLD: [
+    { type: "prefetch", provider: "TwelveData", symbol: "GOLD", quality: "DELAYED" },
+    { type: "alpha", provider: "AlphaVantage XAU/USD", symbol: "GOLD", quality: "DELAYED" },
+    { type: "yahooChart", provider: "Yahoo Chart", symbol: "GC=F", quality: "DELAYED" },
+    { type: "stooq", provider: "Stooq CSV", symbol: "gc.f", quality: "DELAYED" },
+    { type: "lastKnownGood", provider: "lastKnownGood", quality: "CACHED" }
+  ]
+};
+
 const tvSymbols = [
   "NASDAQ:NVDA",
   "NASDAQ:AMD",
@@ -437,18 +486,204 @@ async function fetchWithFallback(symbol) {
   return null;
 }
 
-async function fetchIndexFallback(id, symbol) {
-  if (["NDX", "VIX", "TNX", "DXY", "GOLD"].includes(id)) {
-    const alphaSymbol = id === "GOLD" ? "GOLD" : id;
-    try {
-      const alpha = await fetchAlphaVantageQuote(alphaSymbol);
-      if (alpha) return { ...alpha, dataStatus: "DELAYED" };
-    } catch (error) {
-      console.error("[snapshot:index-fallback] AlphaVantage failed", { id, reason: error?.message || String(error) });
-    }
-    return null;
+function validIndexValue(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0;
+}
+
+function normalizeIndexMetric(id, row, route = {}) {
+  if (!row || !validIndexValue(row.value ?? row.price)) return null;
+  const dataQuality = normalizeDataQuality(route.quality || row.dataStatus || row.status || "DELAYED");
+  const source = route.provider || row.provider || row.source || "Index Router";
+  const updatedAt = Number(row.updatedAt || row.timestamp || Date.now());
+  return {
+    id,
+    name: MARKET_INDEX_META[id] || id,
+    value: Number(row.value ?? row.price),
+    change: Number(row.change ?? row.regularChange ?? 0) || 0,
+    source,
+    provider: source,
+    providerSymbol: route.symbol || row.providerSymbol || row.symbol || MARKET_SYMBOLS[id] || id,
+    dataQuality,
+    status: dataQuality,
+    updatedAt,
+    timestamp: updatedAt,
+    isTradable: ["live", "delayed"].includes(dataQuality),
+    note: `${statusTextForIndex(dataQuality)} · ${source}`,
+    fallback: ["cached", "stale", "snapshot"].includes(dataQuality),
+    triedSources: route.triedSources || [],
+    successfulSource: route.successfulSource || source,
+    failedSources: route.failedSources || [],
+    errorReason: route.errorReason || null
+  };
+}
+
+function statusTextForIndex(dataQuality) {
+  if (dataQuality === "live") return "实时数据";
+  if (dataQuality === "delayed") return "延迟数据";
+  if (dataQuality === "cached") return "最近有效数据";
+  if (dataQuality === "stale") return "缓存快照";
+  return "结构参考";
+}
+
+async function fetchYahooChartIndex(providerSymbol, indexId) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(providerSymbol)}?interval=1m&range=1d`;
+  const payload = await fetchJsonWithDebug("YAHOO_CHART_INDEX", url, { timeoutMs: 8000 });
+  const result = payload?.chart?.result?.[0];
+  const meta = result?.meta || {};
+  const price = Number(meta.regularMarketPrice || meta.chartPreviousClose || 0);
+  const previous = Number(meta.previousClose || meta.chartPreviousClose || result?.indicators?.quote?.[0]?.open?.find((item) => Number.isFinite(Number(item))) || 0);
+  if (!validIndexValue(price)) return null;
+  const change = validIndexValue(previous) ? ((price - previous) / previous) * 100 : 0;
+  return {
+    symbol: indexId,
+    providerSymbol,
+    price,
+    value: price,
+    change,
+    regularChange: change,
+    dataStatus: "DELAYED",
+    provider: "Yahoo Chart",
+    timestamp: Number(meta.regularMarketTime || 0) > 0 ? Number(meta.regularMarketTime) * 1000 : Date.now()
+  };
+}
+
+async function fetchStooqIndex(providerSymbol, indexId) {
+  const response = await fetch(`https://stooq.com/q/l/?s=${encodeURIComponent(providerSymbol)}&f=sd2t2ohlcvp&h&e=csv`, {
+    cache: "no-store",
+    headers: { "User-Agent": "Mozilla/5.0 (compatible; Institutional-Terminal/1.0)" }
+  });
+  if (!response.ok) return null;
+  const [, line] = (await response.text()).trim().split(/\r?\n/);
+  if (!line) return null;
+  const [, date, time, , , , close, volume, previous] = line.split(",");
+  const price = Number(close);
+  const prev = Number(previous);
+  if (!validIndexValue(price)) return null;
+  const change = validIndexValue(prev) ? ((price - prev) / prev) * 100 : 0;
+  const timestamp = date && time ? Date.parse(`${date}T${String(time).replace(/\./g, ":")}Z`) : Date.now();
+  return {
+    symbol: indexId,
+    providerSymbol,
+    price,
+    value: price,
+    change,
+    regularChange: change,
+    volume: Number(volume) || 0,
+    averageVolume: Number(volume) || 0,
+    dataStatus: "DELAYED",
+    provider: "Stooq CSV",
+    timestamp: Number.isFinite(timestamp) ? timestamp : Date.now()
+  };
+}
+
+function prefetchIndexRow(route, context = {}) {
+  if (route.provider === "Finnhub") {
+    const map = context.finnhubMap || new Map();
+    return map.get(route.symbol) || null;
   }
-  return fetchWithFallback(symbol);
+  if (route.provider === "TwelveData") {
+    const map = context.twelveMap || new Map();
+    return map.get(route.symbol) || map.get(MARKET_SYMBOLS[route.symbol]) || null;
+  }
+  if (route.provider === "FRED") {
+    const map = context.fredMap || new Map();
+    return map.get(route.symbol) || null;
+  }
+  if (route.provider?.startsWith("AlphaVantage") && context.alphaMacroMap) {
+    return context.alphaMacroMap.get(route.symbol) || null;
+  }
+  return null;
+}
+
+function lastKnownGoodIndex(id) {
+  const stale = lastGoodIndices().find((item) => item.id === id);
+  if (!stale || !validIndexValue(stale.value)) return null;
+  return {
+    ...stale,
+    value: Number(stale.value),
+    change: Number(stale.change || 0),
+    dataStatus: "CACHED",
+    status: "cached",
+    dataQuality: "cached",
+    source: stale.source || "lastKnownGood",
+    provider: stale.provider || stale.source || "lastKnownGood",
+    timestamp: Number(stale.updatedAt || stale.timestamp || Date.now())
+  };
+}
+
+function tradingViewIndexProxy(id, route, context = {}) {
+  const stale = lastKnownGoodIndex(id);
+  if (!stale) return null;
+  const row = (context.tradingViewMap || new Map()).get(route.symbol);
+  if (!row) return null;
+  return {
+    ...stale,
+    change: Number(row.change || stale.change || 0),
+    dataStatus: "DELAYED",
+    provider: route.provider,
+    source: route.provider,
+    timestamp: row.timestamp || Date.now()
+  };
+}
+
+async function fetchIndexWithFallback(indexId, context = {}) {
+  const routes = INDEX_SOURCE_MAP[indexId] || [];
+  const triedSources = [];
+  const failedSources = [];
+  for (const route of routes) {
+    const routeLabel = `${route.provider}:${route.symbol || indexId}`;
+    triedSources.push(routeLabel);
+    try {
+      let row = null;
+      if (route.type === "prefetch") row = prefetchIndexRow(route, context);
+      if (route.type === "yahooChart") row = await fetchYahooChartIndex(route.symbol, indexId);
+      if (route.type === "stooq") row = await fetchStooqIndex(route.symbol, indexId);
+      if (route.type === "alpha") row = await fetchAlphaVantageQuote(route.symbol);
+      if (route.type === "tradingViewProxy") row = tradingViewIndexProxy(indexId, route, context);
+      if (route.type === "lastKnownGood") row = lastKnownGoodIndex(indexId);
+      if (!row) {
+        failedSources.push({ source: route.provider, providerSymbol: route.symbol || indexId, errorReason: "no_data" });
+        continue;
+      }
+      const normalized = normalizeIndexMetric(indexId, row, {
+        ...route,
+        triedSources,
+        successfulSource: route.provider,
+        failedSources
+      });
+      if (normalized) return normalized;
+      failedSources.push({ source: route.provider, providerSymbol: route.symbol || indexId, errorReason: "invalid_value" });
+    } catch (error) {
+      failedSources.push({ source: route.provider, providerSymbol: route.symbol || indexId, errorReason: error?.message || String(error) });
+      console.error("[snapshot:index-router] route failed", {
+        indexId,
+        provider: route.provider,
+        providerSymbol: route.symbol,
+        reason: error?.message || String(error)
+      });
+    }
+  }
+  return {
+    id: indexId,
+    name: MARKET_INDEX_META[indexId] || indexId,
+    value: null,
+    change: 0,
+    source: "Index Router",
+    providerSymbol: MARKET_SYMBOLS[indexId] || indexId,
+    dataQuality: "unavailable",
+    status: "unavailable",
+    updatedAt: Date.now(),
+    timestamp: Date.now(),
+    isTradable: false,
+    note: "结构参考",
+    fallback: true,
+    error: "source_failed",
+    triedSources,
+    successfulSource: null,
+    failedSources,
+    errorReason: failedSources.at(-1)?.errorReason || "source_failed"
+  };
 }
 
 function finnhubSymbol(symbol = "") {
@@ -875,6 +1110,8 @@ function mergeMarketQuotes({ symbols, marketEntries, finnhubRows = [], twelveDat
   // NDX/VIX/DXY/GOLD: TwelveData -> Alpha/Stooq -> cached snapshot.
   // TNX: FRED DGS10 -> AlphaVantage TREASURY_YIELD -> cached snapshot.
   const indices = marketEntries.map(([id, providerSymbol]) => {
+    const routedIndex = fallbackMarketMap.get(id);
+    if (routedIndex?.id === id) return routedIndex;
     const fallback = snapshotById.get(id);
     const indexRows = {
       SPY: finnhubMap.get("SPY") || twelveMap.get("SPY") || fallbackMarketMap.get("SPY"),
@@ -887,8 +1124,8 @@ function mergeMarketQuotes({ symbols, marketEntries, finnhubRows = [], twelveDat
     };
     const row = indexRows[id] || finnhubMap.get(providerSymbol) || finnhubMap.get(id) || twelveMap.get(providerSymbol) || twelveMap.get(id) || fallbackMarketMap.get(id);
     if (!row) {
-      if (fallback) return { ...fallback, note: "STALE：实时行情源暂不可用，使用最近有效缓存。", status: "STALE", dataQuality: "stale", isTradable: false };
-      return { ...metric(id, MARKET_INDEX_META[id] || id, null, null, "ERROR：暂无可用指数源，等待 lastKnownGood 缓存恢复。", "SNAPSHOT"), fallback: true, error: "source_failed" };
+      if (fallback) return { ...fallback, note: "缓存快照 · 最近有效数据", status: "cached", dataQuality: "cached", isTradable: false };
+      return { ...metric(id, MARKET_INDEX_META[id] || id, null, null, "结构参考", "unavailable"), fallback: true, error: "source_failed" };
     }
     const baseName = fallback?.name || MARKET_INDEX_META[id] || id;
     return metric(id, baseName, row.price ?? fallback?.value ?? null, row.change ?? fallback?.change ?? null, `${row.dataStatus} · ${row.provider || "行情适配器"}。`, row.dataStatus);
@@ -917,8 +1154,15 @@ async function loadMarketData(rawSymbols, providerRows = {}) {
   const marketEntries = Object.entries(MARKET_SYMBOLS);
   const symbols = cleanSymbols(rawSymbols).split(",").filter(Boolean);
   const quoteSymbols = symbols.filter((item) => !Object.values(MARKET_SYMBOLS).includes(item) && !item.startsWith("^")).slice(0, 40);
+  const indexRouteContext = {
+    finnhubMap: new Map((providerRows.finnhub || []).map((item) => [item.symbol, item])),
+    twelveMap: new Map((providerRows.twelveData || []).map((item) => [item.symbol, item])),
+    fredMap: new Map(fredMarketRows(providerRows.fred || []).map((item) => [item.symbol, item])),
+    alphaMacroMap: new Map(alphaMacroMarketRows(providerRows.alphaMacro || null).map((item) => [item.symbol, item])),
+    tradingViewMap: new Map((providerRows.tradingView || []).map((item) => [item.symbol, normalizeTradingViewQuote(item)]).filter(([, row]) => row))
+  };
   const [fallbackMarketRows, fallbackStockRows] = await Promise.all([
-    Promise.all(marketEntries.map(async ([id, symbol]) => [id, await fetchIndexFallback(id, symbol)])),
+    Promise.all(marketEntries.map(async ([id]) => [id, await fetchIndexWithFallback(id, indexRouteContext)])),
     Promise.all(quoteSymbols.map((symbol) => fetchWithFallback(symbol).then((row) => [symbol, row]).catch(() => [symbol, null])))
   ]);
   const fallbackMarketMap = new Map(fallbackMarketRows.map(([id, row]) => [id, row]));
@@ -936,10 +1180,13 @@ async function loadMarketData(rawSymbols, providerRows = {}) {
   });
   const hasFinnhub = Array.isArray(providerRows.finnhub) && providerRows.finnhub.length > 0;
   const hasTwelve = Array.isArray(providerRows.twelveData) && providerRows.twelveData.length > 0;
-  const provider = hasFinnhub ? "Finnhub" : hasTwelve ? "TwelveData" : "Fallback Cache";
-  const status = hasFinnhub ? "live" : hasTwelve ? "delayed" : "snapshot";
-  const fallback = !hasFinnhub && !hasTwelve;
-  const confidence = hasFinnhub ? "HIGH" : hasTwelve ? "MEDIUM" : "LOW";
+  const hasLiveIndex = merged.indices.some((item) => normalizeDataQuality(item.dataQuality || item.status) === "live" && validIndexValue(item.value));
+  const hasDelayedIndex = merged.indices.some((item) => normalizeDataQuality(item.dataQuality || item.status) === "delayed" && validIndexValue(item.value));
+  const hasCachedIndex = merged.indices.some((item) => ["cached", "stale"].includes(normalizeDataQuality(item.dataQuality || item.status)) && validIndexValue(item.value));
+  const provider = hasFinnhub ? "Finnhub" : hasTwelve ? "TwelveData" : hasDelayedIndex ? "Index Router" : hasCachedIndex ? "lastKnownGood" : "Fallback Cache";
+  const status = hasFinnhub || hasLiveIndex ? "live" : hasTwelve || hasDelayedIndex ? "delayed" : hasCachedIndex ? "cached" : "snapshot";
+  const fallback = !hasFinnhub && !hasTwelve && !hasLiveIndex && !hasDelayedIndex;
+  const confidence = hasFinnhub || hasLiveIndex ? "HIGH" : hasTwelve || hasDelayedIndex ? "MEDIUM" : "LOW";
   return {
     data: { ...merged, provider },
     provider,
@@ -2041,7 +2288,7 @@ export async function buildSnapshot(req) {
   let marketRegime = {
     type: riskRegime.mode === "Risk-On" ? "RISK_ON" : riskRegime.mode === "Risk-Off" ? "RISK_OFF" : "NEUTRAL",
     score: riskRegime.score ?? null,
-    explanation: riskRegime.reason || "市场结构引擎暂不可用，保留基础风险判断。",
+    explanation: riskRegime.reason || "市场结构引擎同步中，保留基础风险判断。",
     tradable: normalizedMarketDataSource.status === "live" || normalizedMarketDataSource.status === "delayed",
     preferredStyle: "控仓观察"
   };
@@ -2118,6 +2365,12 @@ export async function buildSnapshot(req) {
   const snapshot = {
     generatedAt,
     envDebug: envDebug(),
+    lastKnownGood: {
+      generatedAt: lastGoodSnapshot?.generatedAt || null,
+      marketData: lastGoodSnapshot?.marketData || null,
+      indices: lastGoodIndices(),
+      quotes: lastGoodQuotes()
+    },
     marketData: normalizedMarketDataSource.data || { indices: normalizedMarketDataSource.indices || [], quotes: normalizedMarketDataSource.quotes || [], provider: normalizedMarketDataSource.provider },
     summary: {
       status: normalizedMarketDataSource.status,
