@@ -1939,3 +1939,127 @@ body[data-risk="neutral"] .strategy-panel h2 {
   .momentum-title strong { font-size: 30px; }
   .momentum-main { padding: 12px; }
 }
+
+/* V5.2 Visual Repair: restore dark terminal contrast and clean information hierarchy */
+#momentumGrid.opportunity-grid {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+}
+.momentum-card {
+  display: grid !important;
+  grid-template-columns: 58px 132px minmax(0, 1fr) !important;
+  min-height: 154px !important;
+  padding: 0 !important;
+  border: 1px solid rgba(255,255,255,.12) !important;
+  border-left: 3px solid rgba(89,215,232,.56) !important;
+  border-radius: 14px !important;
+  overflow: hidden !important;
+  background: radial-gradient(circle at 12% -10%, rgba(89,215,232,.12), transparent 34%), linear-gradient(180deg, rgba(22,26,34,.98), rgba(8,10,14,.98)) !important;
+  box-shadow: 0 20px 80px rgba(0,0,0,.48) !important;
+}
+.momentum-card.momentum-hot { border-left-color: var(--green) !important; box-shadow: 0 0 0 1px rgba(30,215,130,.12), 0 22px 90px rgba(0,0,0,.52) !important; }
+.momentum-card.momentum-watch { border-left-color: var(--gold) !important; }
+.momentum-card.momentum-cold { border-left-color: var(--red) !important; opacity: .86; }
+.momentum-card::before { display: none !important; }
+.momentum-rank {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-right: 1px solid rgba(255,255,255,.1) !important;
+  background: rgba(255,255,255,.035) !important;
+  color: var(--muted) !important;
+  font-size: 15px !important;
+  font-weight: 950 !important;
+}
+.momentum-score {
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: center !important;
+  align-items: center !important;
+  border-right: 1px solid rgba(255,255,255,.1) !important;
+  background: linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.025)) !important;
+}
+.momentum-score b { font-size: clamp(46px, 4.2vw, 72px) !important; line-height: .85 !important; color: var(--text) !important; }
+.momentum-hot .momentum-score b { color: var(--green) !important; }
+.momentum-watch .momentum-score b { color: var(--gold) !important; }
+.momentum-cold .momentum-score b { color: var(--red) !important; }
+.momentum-score span { color: var(--muted) !important; font-size: 10px !important; letter-spacing: .15em !important; }
+.momentum-main { padding: 18px 20px !important; align-content: center !important; gap: 12px !important; }
+.momentum-title strong { font-size: clamp(30px, 2.8vw, 46px) !important; color: var(--text) !important; line-height: .9 !important; }
+.momentum-title em { color: var(--soft) !important; font-size: 12px !important; }
+.momentum-main p { color: var(--soft) !important; font-size: 14px !important; line-height: 1.45 !important; max-width: 680px !important; }
+.momentum-tags span { background: rgba(255,255,255,.055) !important; color: var(--soft) !important; border-color: rgba(255,255,255,.12) !important; }
+.momentum-tags .up { color: var(--green) !important; border-color: rgba(30,215,130,.24) !important; }
+.momentum-tags .down { color: var(--red) !important; border-color: rgba(255,79,100,.24) !important; }
+
+/* Options signal system: dark cards, score-first layout, no pale green panels */
+#optionsFlow.options-grid { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 12px !important; }
+.option-proxy-card {
+  position: relative !important;
+  display: grid !important;
+  gap: 10px !important;
+  min-height: 154px !important;
+  padding: 16px !important;
+  border: 1px solid rgba(255,255,255,.12) !important;
+  border-left: 3px solid var(--gold) !important;
+  border-radius: 14px !important;
+  background: radial-gradient(circle at 0% 0%, rgba(213,173,91,.11), transparent 36%), linear-gradient(180deg, rgba(22,25,32,.98), rgba(8,10,14,.98)) !important;
+  color: var(--text) !important;
+  box-shadow: 0 20px 80px rgba(0,0,0,.46) !important;
+  opacity: 1 !important;
+}
+.option-proxy-card.option-call { border-left-color: var(--green) !important; background: radial-gradient(circle at 0% 0%, rgba(30,215,130,.12), transparent 36%), linear-gradient(180deg, rgba(22,25,32,.98), rgba(8,10,14,.98)) !important; }
+.option-proxy-card.option-put { border-left-color: var(--red) !important; background: radial-gradient(circle at 0% 0%, rgba(255,79,100,.12), transparent 36%), linear-gradient(180deg, rgba(22,25,32,.98), rgba(8,10,14,.98)) !important; }
+.option-topline { display: flex !important; justify-content: space-between !important; gap: 16px !important; align-items: flex-start !important; }
+.option-topline strong { display: block !important; font-size: 28px !important; line-height: .95 !important; color: var(--text) !important; font-weight: 950 !important; letter-spacing: -.04em !important; }
+.option-topline span { display: block !important; margin-top: 5px !important; color: var(--muted) !important; font-size: 12px !important; font-weight: 800 !important; }
+.option-topline b { color: var(--gold) !important; font-size: 52px !important; line-height: .86 !important; font-weight: 950 !important; font-variant-numeric: tabular-nums !important; }
+.option-call .option-topline b { color: var(--green) !important; }
+.option-put .option-topline b { color: var(--red) !important; }
+.option-state { width: fit-content !important; border: 1px solid rgba(255,255,255,.14) !important; border-radius: 999px !important; padding: 5px 10px !important; color: var(--gold) !important; background: rgba(213,173,91,.09) !important; font-size: 12px !important; font-weight: 950 !important; }
+.option-call .option-state { color: var(--green) !important; background: rgba(30,215,130,.09) !important; }
+.option-put .option-state { color: var(--red) !important; background: rgba(255,79,100,.09) !important; }
+.option-proxy-card p { margin: 0 !important; color: var(--soft) !important; font-size: 13px !important; line-height: 1.45 !important; }
+.option-meta-row { display: flex !important; gap: 8px !important; flex-wrap: wrap !important; }
+.option-meta-row span, .option-proxy-card small { color: var(--muted) !important; font-size: 11px !important; line-height: 1.35 !important; }
+.option-meta-row span { border: 1px solid rgba(255,255,255,.12) !important; border-radius: 999px !important; padding: 4px 8px !important; background: rgba(255,255,255,.045) !important; }
+
+/* Retail sentiment: remove pale green fallback panel and increase read contrast */
+#retailPanel, .sentiment-gauge-card {
+  background: radial-gradient(circle at 0% 0%, rgba(89,215,232,.10), transparent 34%), linear-gradient(180deg, rgba(22,25,32,.98), rgba(8,10,14,.98)) !important;
+  color: var(--text) !important;
+  opacity: 1 !important;
+}
+.sentiment-gauge-card {
+  border: 1px solid rgba(255,255,255,.12) !important;
+  border-left: 3px solid var(--cyan) !important;
+  border-radius: 14px !important;
+  padding: 18px !important;
+  min-height: 166px !important;
+}
+.dial-copy strong { color: var(--text) !important; font-size: 24px !important; }
+.dial-copy p, .dial-scale, .retail-note { color: var(--muted) !important; }
+.mention-grid span { background: rgba(255,255,255,.045) !important; color: var(--soft) !important; border-color: rgba(255,255,255,.12) !important; }
+.mention-grid b { color: var(--text) !important; }
+
+/* Strong contrast for low-confidence cards without turning them pale */
+.quality-snapshot, .quality-fallback, .quality-cached, .quality-unavailable { opacity: 1 !important; }
+.quality-snapshot::after, .quality-fallback::after, .quality-cached::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,.035), transparent 34%);
+}
+
+@media (max-width: 1180px) {
+  #momentumGrid.opportunity-grid, #optionsFlow.options-grid { grid-template-columns: 1fr !important; }
+}
+@media (max-width: 760px) {
+  .momentum-card { grid-template-columns: 42px 86px minmax(0, 1fr) !important; min-height: 134px !important; }
+  .momentum-score b { font-size: 34px !important; }
+  .momentum-title { flex-direction: column !important; gap: 4px !important; }
+  .momentum-title strong { font-size: 28px !important; }
+  .option-topline b { font-size: 40px !important; }
+}

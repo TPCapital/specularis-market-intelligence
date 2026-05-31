@@ -2114,16 +2114,34 @@ function renderRetail(retail, status = { status: "fallback" }) {
 }
 
 function renderOptions(items) {
-  html("#optionsFlow", items.map((item) => `
-    <div class="feed-item option-proxy-card quality-${escapeHtml(item.dataQuality || "proxy")}">
-      <div class="row-head"><span>${escapeHtml(item.symbol)}</span><span>${escapeHtml(item.sector || "其他")}</span></div>
-      <div class="option-score">${escapeHtml(displayTradeState(item.conviction || item.direction || "WATCHLIST"))}</div>
-      <strong class="option-direction">代理评分（Proxy Score） ${item.score === null ? "--" : Math.round(Number(item.score || 0))}</strong>
-      <p>${escapeHtml(item.summary)}</p>
-      <small>${escapeHtml(statusLabel(item.dataQuality || "proxy"))} · 代理推断，不是真实期权大单</small>
-      <small>${escapeHtml(item.risk || "风险：需等待开盘量价确认。")}</small>
-    </div>
-  `).join(""));
+  html("#optionsFlow", items.map((item) => {
+    const score = Number(item.score || 0);
+    const state = item.conviction || item.direction || "WATCHLIST";
+    const lowerState = String(state).toLowerCase();
+    const tier = lowerState.includes("call") || score >= 82
+      ? "option-call"
+      : lowerState.includes("put") || lowerState.includes("hedge") || lowerState.includes("risky")
+        ? "option-put"
+        : "option-watch";
+    return `
+      <article class="option-proxy-card ${tier} quality-${escapeHtml(item.dataQuality || "proxy")}">
+        <div class="option-topline">
+          <div>
+            <strong>${escapeHtml(item.symbol)}</strong>
+            <span>${escapeHtml(item.sector || "其他")}</span>
+          </div>
+          <b>${score ? Math.round(score) : "--"}</b>
+        </div>
+        <div class="option-state">${escapeHtml(displayTradeState(state))}</div>
+        <p>${escapeHtml(item.summary)}</p>
+        <div class="option-meta-row">
+          <span>${escapeHtml(statusLabel(item.dataQuality || "proxy"))}</span>
+          <span>代理推断，不是真实 sweep</span>
+        </div>
+        <small>${escapeHtml(item.risk || "风险：需等待开盘量价确认。")}</small>
+      </article>
+    `;
+  }).join(""));
 }
 
 function renderOpportunities(items = [], watchlist = []) {
