@@ -183,3 +183,26 @@ window.DASHBOARD_CONFIG = {
 2. `/api/snapshot` 中是否出现 `currentSnapshotRejected: true`，若出现也应正常返回 lastKnownGood。
 3. 页面“数据源状态”中是否显示市场数据 active source、Upstash 状态和 NDX/VIX/DXY 命中源。
 4. 今日机会榜是否同时展示“高置信机会”和“盘前观察名单”。
+
+
+## V6 Professional Trading Terminal 升级说明
+
+本版从“信息展示系统”升级为“交易决策系统”，核心变化：
+
+- 新增 V6 Decision Engine：把行情、板块、异动、新闻、期权代理和宏观风险转成可执行的交易倾向。
+- 新增 Market Regime 决策层：风险偏好 / 风险规避 / 中性震荡不再只是数字，而是直接生成交易语言。
+- 新增 Sector Rotation Engine 展示层：用热度阶梯显示资金主要流入/流出方向。
+- 新增 Opportunity Board：按评分、信号、原因和风险对盘前机会排序。
+- 新增 Trade Playbook：输出“主计划 / 优先关注 / 避免 / 确认信号”。
+- 新增 `/api/daily-report`：复用 `/api/snapshot` 生成中文结构化日报，不新建第二套系统。
+- 继续保持 Vercel Hobby 兼容：不使用 Cron，页面打开时主动刷新。
+
+推荐数据基础设施：
+
+1. P0：配置 `UPSTASH_REDIS_REST_URL` 与 `UPSTASH_REDIS_REST_TOKEN`，让 lastKnownGood 缓存跨 Serverless 冷启动保存。
+2. P1：配置 `FINNHUB_API_KEY`，提升股票行情、新闻、财报和 insider 数据质量。
+3. P2：配置 `TWELVEDATA_API_KEY`，补充指数、外汇、黄金和技术指标。
+4. P3：配置 `FRED_API_KEY` 与 `ALPHAVANTAGE_API_KEY`，强化宏观层。
+5. P4：未来再接入 `TRADIER_TOKEN` / Unusual Whales / Polygon Options，替换当前 Options Signal Proxy。
+
+注意：当前期权信号仍是 Proxy，不是真实 sweep / block trade。日报引擎是“解释层”，不会编造缺失数据。

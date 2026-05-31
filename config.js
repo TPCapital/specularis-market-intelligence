@@ -3,7 +3,8 @@ window.DASHBOARD_CONFIG = {
 
   // Vercel Hobby-compatible architecture: snapshot is the only public API.
   endpoints: {
-    snapshot: "/api/snapshot"
+    snapshot: "/api/snapshot",
+    dailyReport: "/api/daily-report"
   },
 
   marketSymbols: [

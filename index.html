@@ -69,6 +69,42 @@
         </article>
       </section>
 
+
+
+      <section class="decision-layer" aria-label="V6 交易决策层">
+        <article class="decision-hero" id="v6DecisionHero">
+          <div class="decision-hero-main">
+            <p class="eyebrow">V6 DECISION ENGINE</p>
+            <h2 id="v6DecisionTitle">等待市场状态</h2>
+            <p id="v6DecisionSummary">正在把行情、板块、催化、量能与风险指标转化为交易计划。</p>
+          </div>
+          <div class="decision-action-box">
+            <span>执行倾向</span>
+            <strong id="v6ActionBias">等待确认</strong>
+            <em id="v6ActionRule">开盘 15 分钟后确认 VWAP 与相对成交量</em>
+          </div>
+        </article>
+
+        <div class="decision-lane-grid">
+          <article class="decision-lane">
+            <div class="decision-lane-head"><span>01</span><strong>市场状态</strong><em>Market Regime</em></div>
+            <div id="v6RegimeChecks" class="decision-checks"></div>
+          </article>
+          <article class="decision-lane">
+            <div class="decision-lane-head"><span>02</span><strong>板块轮动</strong><em>Sector Rotation</em></div>
+            <div id="v6SectorRotation" class="sector-ladder"></div>
+          </article>
+          <article class="decision-lane decision-lane-wide">
+            <div class="decision-lane-head"><span>03</span><strong>今日机会</strong><em>Opportunity Board</em></div>
+            <div id="v6OpportunityBoard" class="v6-opportunity-board"></div>
+          </article>
+          <article class="decision-lane decision-lane-wide">
+            <div class="decision-lane-head"><span>04</span><strong>交易计划</strong><em>Trade Playbook</em></div>
+            <div id="v6TradePlaybook" class="trade-playbook-grid"></div>
+          </article>
+        </div>
+      </section>
+
       <section class="workspace-view is-active" data-workspace="premarket">
       <section class="hero-grid">
         <article class="regime-panel">
