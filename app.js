@@ -2536,14 +2536,31 @@ function initWorkspaceNavigation() {
   const tabs = [...document.querySelectorAll("[data-workspace-target]")];
   const views = [...document.querySelectorAll("[data-workspace]")];
   if (!tabs.length || !views.length) return;
-  tabs.forEach((tab) => {
-    tab.addEventListener("click", () => {
-      const target = tab.dataset.workspaceTarget;
-      tabs.forEach((node) => node.classList.toggle("is-active", node === tab));
-      views.forEach((view) => view.classList.toggle("is-active", view.dataset.workspace === target));
-      window.scrollTo({ top: 0, behavior: "smooth" });
+
+  const activateWorkspace = (target, shouldScroll = true) => {
+    const selectedView = views.find((view) => view.dataset.workspace === target) || views[0];
+    const selectedTarget = selectedView?.dataset.workspace || "premarket";
+    tabs.forEach((node) => {
+      const active = node.dataset.workspaceTarget === selectedTarget;
+      node.classList.toggle("is-active", active);
+      node.setAttribute("aria-selected", active ? "true" : "false");
     });
+    views.forEach((view) => view.classList.toggle("is-active", view === selectedView));
+    document.body.dataset.workspace = selectedTarget;
+    try { sessionStorage.setItem(`${CACHE_PREFIX}workspace`, selectedTarget); } catch {}
+    if (shouldScroll && selectedView) {
+      selectedView.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
+
+  tabs.forEach((tab) => {
+    tab.setAttribute("role", "tab");
+    tab.addEventListener("click", () => activateWorkspace(tab.dataset.workspaceTarget, true));
   });
+
+  let initial = "premarket";
+  try { initial = sessionStorage.getItem(`${CACHE_PREFIX}workspace`) || initial; } catch {}
+  activateWorkspace(initial, false);
 }
 
 function startCountdown() {

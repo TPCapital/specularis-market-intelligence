@@ -2283,3 +2283,188 @@ body[data-risk="neutral"] .strategy-panel h2 {
   .v6-opportunity-row { grid-template-columns: 38px 72px 50px 1fr; }
   .v6-opportunity-row p { grid-column: 1 / -1; }
 }
+
+/* === V6.1 Visual Consistency + Navigation Repair ===
+   Fix: pale fallback backgrounds, mixed card surfaces, and unclear workspace switching. */
+:root {
+  --terminal-surface: linear-gradient(180deg, rgba(22,25,32,.985), rgba(7,9,13,.992));
+  --terminal-surface-soft: radial-gradient(circle at 0% 0%, rgba(89,215,232,.075), transparent 34%), linear-gradient(180deg, rgba(22,25,32,.985), rgba(7,9,13,.992));
+}
+
+/* Workspace nav must feel clickable and active. */
+.workspace-nav {
+  position: sticky;
+  top: 8px;
+  z-index: 50;
+  backdrop-filter: blur(20px);
+}
+.workspace-tab {
+  cursor: pointer;
+  user-select: none;
+  transition: transform .2s ease, border-color .2s ease, background .2s ease, box-shadow .2s ease;
+}
+.workspace-tab.is-active {
+  border-color: rgba(213,173,91,.72) !important;
+  background: radial-gradient(circle at 8% 0%, rgba(213,173,91,.18), transparent 36%), linear-gradient(180deg, rgba(26,29,36,.98), rgba(9,11,15,.98)) !important;
+  box-shadow: inset 0 0 0 1px rgba(213,173,91,.08), 0 16px 55px rgba(0,0,0,.38) !important;
+}
+.workspace-tab.is-active span,
+.workspace-tab.is-active strong { color: var(--gold) !important; }
+.workspace-tab:active { transform: translateY(1px) scale(.995); }
+.workspace-view { scroll-margin-top: 96px; }
+
+/* Force all decision cards to dark institutional terminal surfaces. */
+.decision-layer,
+.decision-hero,
+.decision-lane,
+.decision-action-box,
+.playbook-card,
+.command-tile,
+.section,
+.regime-panel,
+.strategy-panel,
+.metric-card,
+.feed-item,
+.news-card,
+.star-card,
+.flow-card,
+.source-card,
+.opportunity-card,
+.v6-opportunity-row,
+.sector-step,
+.sentiment-gauge-card,
+#retailPanel,
+.option-proxy-card,
+.momentum-card {
+  color: var(--text) !important;
+}
+
+.decision-action-box,
+.playbook-card,
+.decision-lane,
+.option-proxy-card,
+.sentiment-gauge-card,
+#retailPanel {
+  background: var(--terminal-surface-soft) !important;
+  border-color: rgba(255,255,255,.13) !important;
+  box-shadow: 0 22px 80px rgba(0,0,0,.45) !important;
+}
+
+/* Remove the accidental pale-green overlay completely. */
+.quality-snapshot::after,
+.quality-fallback::after,
+.quality-cached::after,
+.quality-unavailable::after,
+.option-proxy-card::after,
+.playbook-card::after,
+.sentiment-gauge-card::after,
+#retailPanel::after,
+.decision-action-box::after {
+  display: none !important;
+  content: none !important;
+  background: transparent !important;
+}
+
+/* Trade playbook: consistent dark cards and clear hierarchy. */
+.trade-playbook-grid {
+  grid-template-columns: 1.45fr 1fr 1fr 1fr !important;
+  gap: 12px !important;
+}
+.playbook-card {
+  min-height: 158px !important;
+  padding: 18px !important;
+  border-radius: 18px !important;
+  border-left: 3px solid rgba(89,215,232,.55) !important;
+}
+.playbook-card.primary {
+  border-left-color: var(--gold) !important;
+  background: radial-gradient(circle at 0% 0%, rgba(213,173,91,.14), transparent 34%), linear-gradient(180deg, rgba(25,23,18,.98), rgba(8,9,12,.98)) !important;
+}
+.playbook-card.danger {
+  border-left-color: var(--red) !important;
+  background: radial-gradient(circle at 0% 0%, rgba(255,79,100,.12), transparent 34%), linear-gradient(180deg, rgba(25,20,24,.98), rgba(8,9,12,.98)) !important;
+}
+.playbook-card span { color: var(--muted) !important; }
+.playbook-card strong { color: var(--text) !important; font-size: clamp(20px, 1.6vw, 28px) !important; }
+.playbook-card p { color: var(--soft) !important; font-size: 14px !important; }
+
+/* Decision action box: no pale green, score/action should be readable. */
+.decision-action-box {
+  border-left: 3px solid var(--cyan) !important;
+  min-height: 220px;
+}
+.decision-hero[data-mode="risk-on"] .decision-action-box {
+  border-left-color: var(--green) !important;
+  background: radial-gradient(circle at 0% 0%, rgba(30,215,130,.12), transparent 36%), linear-gradient(180deg, rgba(22,25,32,.98), rgba(7,9,13,.99)) !important;
+}
+.decision-hero[data-mode="risk-off"] .decision-action-box {
+  border-left-color: var(--red) !important;
+  background: radial-gradient(circle at 0% 0%, rgba(255,79,100,.12), transparent 36%), linear-gradient(180deg, rgba(22,25,32,.98), rgba(7,9,13,.99)) !important;
+}
+.decision-action-box strong {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  font-size: clamp(32px, 3.6vw, 58px) !important;
+}
+.decision-action-box em { color: var(--soft) !important; font-size: 14px !important; line-height: 1.45 !important; }
+
+/* Options signal: dark, compact, comparable cards. */
+#optionsFlow.options-grid {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 14px !important;
+}
+.option-proxy-card {
+  min-height: 178px !important;
+  border-radius: 18px !important;
+  padding: 18px !important;
+  border-left: 4px solid var(--gold) !important;
+  background: radial-gradient(circle at 0% 0%, rgba(213,173,91,.12), transparent 36%), linear-gradient(180deg, rgba(22,25,32,.985), rgba(7,9,13,.992)) !important;
+}
+.option-proxy-card.option-call { border-left-color: var(--green) !important; }
+.option-proxy-card.option-put { border-left-color: var(--red) !important; }
+.option-topline strong { color: var(--text) !important; }
+.option-topline span,
+.option-meta-row span,
+.option-proxy-card small { color: var(--muted) !important; }
+.option-proxy-card p { color: var(--soft) !important; }
+
+/* Retail sentiment: dark and readable. */
+#retailPanel {
+  padding: 18px !important;
+  border-radius: 18px !important;
+  border: 1px solid rgba(255,255,255,.13) !important;
+  border-left: 4px solid var(--cyan) !important;
+}
+.sentiment-gauge-card { background: transparent !important; box-shadow: none !important; }
+.dial-copy strong { color: var(--text) !important; }
+.dial-copy p { color: var(--soft) !important; }
+.retail-note { color: var(--muted) !important; margin-top: 12px !important; }
+
+/* Premarket momentum remains card-based, not a loose text list. */
+#momentumGrid.opportunity-grid {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 14px !important;
+}
+.momentum-card {
+  grid-template-columns: 62px 142px minmax(0, 1fr) !important;
+  min-height: 164px !important;
+  border-radius: 18px !important;
+}
+.momentum-rank { font-size: 16px !important; }
+.momentum-score b { font-size: clamp(48px, 4.6vw, 76px) !important; }
+.momentum-title strong { font-size: clamp(32px, 3vw, 48px) !important; }
+
+@media (max-width: 1180px) {
+  .trade-playbook-grid,
+  #momentumGrid.opportunity-grid,
+  #optionsFlow.options-grid { grid-template-columns: 1fr !important; }
+}
+@media (max-width: 760px) {
+  .workspace-nav { position: static; }
+  .decision-action-box { min-height: 160px; }
+  .momentum-card { grid-template-columns: 48px 94px minmax(0,1fr) !important; }
+  .momentum-score b { font-size: 40px !important; }
+  .playbook-card { min-height: auto !important; }
+}
