@@ -21,6 +21,25 @@
         </div>
       </header>
 
+      <nav class="workspace-nav" aria-label="交易工作区导航">
+        <button class="workspace-tab is-active" type="button" data-workspace-target="premarket">
+          <span>01</span><strong>盘前战情室</strong><em>Pre-market</em>
+        </button>
+        <button class="workspace-tab" type="button" data-workspace-target="intraday">
+          <span>02</span><strong>盘中信息流</strong><em>Live Flow</em>
+        </button>
+        <button class="workspace-tab" type="button" data-workspace-target="report">
+          <span>03</span><strong>收盘日报</strong><em>Daily Report</em>
+        </button>
+        <button class="workspace-tab" type="button" data-workspace-target="plan">
+          <span>04</span><strong>明日交易计划</strong><em>Next Plan</em>
+        </button>
+        <button class="workspace-tab" type="button" data-workspace-target="watchlist">
+          <span>05</span><strong>AI Watchlist</strong><em>Focus List</em>
+        </button>
+      </nav>
+
+      <section class="workspace-view is-active" data-workspace="premarket">
       <section class="hero-grid">
         <article class="regime-panel">
           <p class="panel-label">Risk Regime</p>
@@ -189,6 +208,59 @@
           <span id="sourceModuleMeta">等待同步</span>
         </div>
         <div id="sourceGrid" class="source-grid loading-zone is-loading"></div>
+      </section>
+
+
+      </section>
+
+      <section class="workspace-view" data-workspace="intraday">
+        <section class="section pro-hero-card">
+          <div class="section-title">
+            <h2>盘中信息流 <small>LIVE FLOW DESK</small></h2>
+            <span id="intradayModuleMeta">等待同步</span>
+          </div>
+          <div id="intradayPulse" class="pro-dashboard-grid loading-zone is-loading"></div>
+        </section>
+        <section class="section pro-split-grid">
+          <article class="intel-panel">
+            <div class="section-title compact"><h2>突发新闻流</h2><span>NEWS CATALYST</span></div>
+            <div id="intradayNews" class="feed-list loading-zone is-loading"></div>
+          </article>
+          <article class="intel-panel">
+            <div class="section-title compact"><h2>动量 / 异动雷达</h2><span>MOMENTUM RADAR</span></div>
+            <div id="intradayMovers" class="feed-list loading-zone is-loading"></div>
+          </article>
+        </section>
+      </section>
+
+      <section class="workspace-view" data-workspace="report">
+        <section class="section pro-hero-card">
+          <div class="section-title">
+            <h2>美股收盘日报 <small>US MARKET DAILY CLOSE</small></h2>
+            <span id="dailyReportMeta">北京时间 08:00 复盘模板</span>
+          </div>
+          <div id="dailyReport" class="daily-report-grid loading-zone is-loading"></div>
+        </section>
+      </section>
+
+      <section class="workspace-view" data-workspace="plan">
+        <section class="section pro-hero-card">
+          <div class="section-title">
+            <h2>明日交易计划 <small>NEXT SESSION PLAYBOOK</small></h2>
+            <span id="nextPlanMeta">等待同步</span>
+          </div>
+          <div id="decisionBoard" class="decision-board loading-zone is-loading"></div>
+        </section>
+      </section>
+
+      <section class="workspace-view" data-workspace="watchlist">
+        <section class="section pro-hero-card">
+          <div class="section-title">
+            <h2>AI Watchlist <small>核心主题追踪</small></h2>
+            <span id="watchlistMeta">AI / 半导体 / 软件 / 电力 / 核能</span>
+          </div>
+          <div id="aiWatchlist" class="watchlist-grid loading-zone is-loading"></div>
+        </section>
       </section>
 
     </main>
