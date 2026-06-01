@@ -2150,3 +2150,87 @@ body[data-risk="neutral"] .strategy-panel h2 {
   line-height: .9;
   font-weight: 950;
 }
+
+/* === V6.9 Emergency UI Repair ===
+   1) hide internal progress cards from user-facing terminal
+   2) remove pale background from trade plan cards
+   3) keep WSB panel usable even when Reddit live source is blocked
+*/
+.completion-card,
+.structure-card.completion-card,
+[data-module="completion"],
+#completionCard,
+#p2Completion,
+.p2-completion-card {
+  display: none !important;
+}
+
+/* Trade plan cards: force dark terminal surfaces */
+.trade-playbook-grid,
+#tradePlaybook,
+#v6TradePlaybook {
+  gap: 14px !important;
+}
+.playbook-card,
+.decision-card,
+.trade-plan-card,
+#v6TradePlaybook .playbook-card,
+#tradePlanGrid .playbook-card {
+  background: radial-gradient(circle at 0% 0%, rgba(89,215,232,.08), transparent 34%), linear-gradient(180deg, rgba(22,25,32,.985), rgba(7,9,13,.992)) !important;
+  color: var(--text) !important;
+  border: 1px solid rgba(255,255,255,.13) !important;
+  border-left: 3px solid rgba(89,215,232,.58) !important;
+  box-shadow: 0 22px 80px rgba(0,0,0,.46) !important;
+  opacity: 1 !important;
+}
+.playbook-card.primary {
+  background: radial-gradient(circle at 0% 0%, rgba(213,173,91,.13), transparent 34%), linear-gradient(180deg, rgba(24,23,18,.985), rgba(7,9,13,.992)) !important;
+  border-left-color: var(--gold) !important;
+}
+.playbook-card.danger {
+  background: radial-gradient(circle at 0% 0%, rgba(255,79,100,.13), transparent 34%), linear-gradient(180deg, rgba(25,20,24,.985), rgba(7,9,13,.992)) !important;
+  border-left-color: var(--red) !important;
+}
+.playbook-card::after,
+.decision-card::after,
+.trade-plan-card::after {
+  display: none !important;
+  content: none !important;
+}
+.playbook-card span,
+.playbook-card p,
+.playbook-card li,
+.decision-card p {
+  color: var(--soft) !important;
+}
+.playbook-card strong,
+.decision-card strong,
+.playbook-card h3,
+.decision-card h3 {
+  color: var(--text) !important;
+}
+
+/* WSB panel: use dark panel and proxy state instead of ugly unavailable block */
+#retailPanel,
+.sentiment-gauge-card,
+.retail-panel {
+  background: radial-gradient(circle at 0% 0%, rgba(89,215,232,.10), transparent 34%), linear-gradient(180deg, rgba(22,25,32,.985), rgba(7,9,13,.992)) !important;
+  color: var(--text) !important;
+  border-color: rgba(255,255,255,.13) !important;
+  box-shadow: 0 22px 80px rgba(0,0,0,.46) !important;
+}
+#retailPanel::after,
+.sentiment-gauge-card::after {
+  display: none !important;
+  content: none !important;
+}
+.dial-copy strong { color: var(--text) !important; }
+.dial-copy p,
+.retail-note,
+.dial-scale { color: var(--soft) !important; }
+.mention-grid span {
+  background: rgba(255,255,255,.045) !important;
+  border: 1px solid rgba(255,255,255,.12) !important;
+  color: var(--soft) !important;
+}
+.mention-grid b { color: var(--gold) !important; }

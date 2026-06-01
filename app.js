@@ -787,11 +787,11 @@ function buildDashboard(sources) {
     : deriveMoversFromQuotes(marketQuotes);
   const movers = normalizeMovers(moversRaw, quoteMap, marketQuotes);
   const stars = normalizeStars(sources.tradingView.data, quoteMap);
-  const retail = sources.reddit.data;
   const newsItems = Array.isArray(sources.newsAggregator?.data?.news) ? sources.newsAggregator.data.news : Array.isArray(sources.benzinga?.data?.news) ? sources.benzinga.data.news : [];
   const newsForScoring = scoreEligible.news ? newsItems : [];
   const options = normalizeOptions(sources.unusualWhales.data, sources.unusualWhales);
   const premarketMomentum = normalizePremarketMomentum(sources.premarketMomentum?.data?.leaders || [], sources.premarketMomentum);
+  const retail = normalizeRetailSentiment(sources.reddit?.data, { premarketMomentum, quotes: marketQuotes, news: newsItems, source: sources.reddit });
   const optionsForScoring = [];
   const retailForScoring = scoreEligible.retail ? retail : {};
   const marketBreadth = sources.marketBreadth?.data || {};
@@ -888,7 +888,7 @@ function buildDashboard(sources) {
       tradePlan: statusGroup([sources.decisionEngine, sources.marketData, sources.finviz, sources.unusualWhales]),
       news: statusGroup([sources.benzinga]),
       macro: statusGroup([sources.xMacro]),
-      retail: statusGroup([sources.reddit]),
+      retail: retail.dataQuality === "proxy" ? { status: "proxy", timestamp: "代理热度" } : statusGroup([sources.reddit]),
       options: statusGroup([sources.unusualWhales]),
       source: sourceBasis
     },
@@ -2142,8 +2142,7 @@ function renderMarketStructurePro(data = {}) {
       `>50MA ${breadthPro.percentAbove50 ?? "--"}%`,
       `>200MA ${breadthPro.percentAbove200 ?? "--"}%`,
       displayStructureState(breadthPro.health)
-    ], breadthPro.breadthScore, "breadth"),
-    `<article class="structure-card completion-card"><p class="panel-label">P2 完成度</p><strong>${completion.freeScopePercent ?? 92}%</strong><p>${escapeHtml(completion.summary || "免费数据范围内已完成；真实 CME / 全市场均线仍需付费或授权源。")}</p><div class="structure-tags">${(completion.done || []).slice(0,4).map((x)=>`<span>${escapeHtml(x)}</span>`).join("")}</div></article>`
+    ], breadthPro.breadthScore, "breadth")
   ];
   html("#marketStructureGrid", htmlParts.join(""));
 }
@@ -2190,6 +2189,41 @@ function renderMacro(items) {
   `).join(""));
 }
 
+
+function normalizeRetailSentiment(data = {}, context = {}) {
+  const sourceStatus = String(context.source?.status || "").toLowerCase();
+  const hasMentions = Array.isArray(data.mentions) && data.mentions.length;
+  if (data && data.score !== null && data.score !== undefined && hasMentions) {
+    return {
+      score: clamp(Number(data.score || 50)),
+      tone: data.tone || "中性",
+      mentions: data.mentions,
+      summary: data.summary || "WSB 提及热度正常。",
+      dataQuality: sourceStatus === "live" ? "live" : sourceStatus === "cached" ? "cached" : "proxy"
+    };
+  }
+
+  const counts = new Map();
+  const add = (symbol, weight = 1) => {
+    if (!symbol || !symbolMeta[symbol]) return;
+    counts.set(symbol, (counts.get(symbol) || 0) + weight);
+  };
+  for (const item of context.premarketMomentum || []) add(item.symbol, item.momentumScore >= 65 ? 2 : 1);
+  for (const item of context.quotes || []) {
+    if (Math.abs(Number(item.change || 0)) >= 1.2) add(item.symbol, 1);
+  }
+  for (const item of context.news || []) add(item.ticker || item.symbol, 1);
+  const mentions = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const score = mentions.length ? clamp(48 + Math.min(18, mentions.reduce((sum, [, count]) => sum + count, 0) * 2)) : 50;
+  return {
+    score,
+    tone: score >= 62 ? "偏乐观" : score <= 42 ? "偏谨慎" : "中性",
+    mentions: mentions.length ? mentions : [["NVDA", 0], ["AMD", 0], ["PLTR", 0], ["MSFT", 0]],
+    summary: "Reddit 实时源暂不可用，当前使用盘前动量、新闻与自选股热度生成散户关注代理。",
+    dataQuality: "proxy"
+  };
+}
+
 function renderRetail(retail, status = { status: "fallback" }) {
   const score = clamp(retail.score || 50);
   const angle = -90 + score * 1.8;
@@ -2204,8 +2238,8 @@ function renderRetail(retail, status = { status: "fallback" }) {
         <div class="dial-label">${escapeHtml(fearLabel)}</div>
       </div>
       <div class="dial-copy">
-        <strong>${escapeHtml(retail.tone)}</strong>
-        <p>${escapeHtml(retail.summary)}</p>
+        <strong>${escapeHtml(retail.tone || "中性")}</strong>
+        <p>${escapeHtml(retail.summary || "散户情绪处于中性区间。")}</p>
         <div class="dial-scale">
           <span>恐慌</span>
           <span>中性</span>
@@ -2214,9 +2248,9 @@ function renderRetail(retail, status = { status: "fallback" }) {
       </div>
     </div>
     <div class="mention-grid">
-      ${retail.mentions.map(([symbol, count]) => `<span>${escapeHtml(symbol)} <b>${count}次</b></span>`).join("")}
+      ${(retail.mentions || []).map(([symbol, count]) => `<span>${escapeHtml(symbol)} <b>${count > 0 ? `${count}次` : "观察"}</b></span>`).join("")}
     </div>
-    <p class="retail-note">${["fallback", "snapshot"].includes(status.status) ? "SNAPSHOT：当前为备用热度快照，等待 Reddit 数据刷新。" : "数字代表 WallStreetBets 近期帖子中股票代码被提及次数，仅代表散户关注度，不代表买卖信号。"}</p>
+    <p class="retail-note">${retail.dataQuality === "proxy" || ["fallback", "snapshot", "unavailable"].includes(status.status) ? "PROXY：Reddit 实时源不可用时，使用盘前动量、新闻与股票池热度生成关注度代理；不代表买卖信号。" : "数字代表 WallStreetBets 近期帖子中股票代码被提及次数，仅代表散户关注度，不代表买卖信号。"}</p>
   `);
 }
 

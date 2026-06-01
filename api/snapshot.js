@@ -1467,30 +1467,49 @@ async function loadTradingView() {
 }
 
 async function loadReddit() {
-  const payload = await fetchJson("https://www.reddit.com/r/wallstreetbets/hot.json?limit=50", {
-    timeoutMs: 2800,
-    headers: { "User-Agent": "InstitutionalDashboard/1.0" }
-  });
-  const posts = payload.data?.children?.map((item) => item.data) || [];
-  if (!posts.length) throw new Error("Reddit empty feed");
-  const tickers = {};
-  let toneScore = 50;
-  for (const post of posts) {
-    const text = `${post.title || ""}`.toUpperCase();
-    for (const symbol of Object.keys(symbolMeta)) {
-      if (text.includes(symbol)) tickers[symbol] = (tickers[symbol] || 0) + 1;
+  const endpoints = [
+    "https://www.reddit.com/r/wallstreetbets/hot.json?limit=50",
+    "https://old.reddit.com/r/wallstreetbets/hot.json?limit=50",
+    "https://www.reddit.com/r/wallstreetbets/search.json?q=NVDA%20OR%20AMD%20OR%20PLTR%20OR%20MSFT%20OR%20AVGO&restrict_sr=1&sort=new&limit=50"
+  ];
+  let lastError = null;
+  for (const endpoint of endpoints) {
+    try {
+      const payload = await fetchJson(endpoint, {
+        timeoutMs: 2400,
+        headers: {
+          "User-Agent": "Mozilla/5.0 AIEquityFlowDashboard/1.0",
+          Accept: "application/json,text/plain,*/*"
+        }
+      });
+      const posts = payload.data?.children?.map((item) => item.data) || [];
+      if (!posts.length) throw new Error("Reddit empty feed");
+      const tickers = {};
+      let toneScore = 50;
+      for (const post of posts) {
+        const text = `${post.title || ""} ${post.selftext || ""}`.toUpperCase();
+        for (const symbol of Object.keys(symbolMeta)) {
+          const pattern = new RegExp(`(^|[^A-Z])${symbol}([^A-Z]|$)`, "i");
+          if (pattern.test(text)) tickers[symbol] = (tickers[symbol] || 0) + 1;
+        }
+        const lower = text.toLowerCase();
+        if (/(call|calls|moon|bull|buy|yolo|beat|breakout)/.test(lower)) toneScore += 1.6;
+        if (/(put|puts|bear|sell|short|miss|dump)/.test(lower)) toneScore -= 1.4;
+      }
+      const mentions = Object.entries(tickers).sort((a, b) => b[1] - a[1]).slice(0, 8);
+      const score = clamp(Math.round(toneScore));
+      return {
+        score,
+        tone: score >= 62 ? "偏乐观" : score <= 42 ? "偏谨慎" : "中性",
+        mentions,
+        summary: score >= 62 ? "WSB 风险偏好回升，高 beta 与 AI 讨论活跃。" : "WSB 情绪未形成一致追涨，短线偏观察。",
+        provider: endpoint.includes("old.reddit") ? "old.reddit" : "reddit"
+      };
+    } catch (error) {
+      lastError = error;
     }
-    const lower = text.toLowerCase();
-    if (/(call|calls|moon|bull|buy|yolo|beat)/.test(lower)) toneScore += 1.6;
-    if (/(put|puts|bear|sell|short|miss)/.test(lower)) toneScore -= 1.4;
   }
-  const score = clamp(Math.round(toneScore));
-  return {
-    score,
-    tone: score >= 62 ? "偏乐观" : score <= 42 ? "偏谨慎" : "中性",
-    mentions: Object.entries(tickers).sort((a, b) => b[1] - a[1]).slice(0, 8),
-    summary: score >= 62 ? "WSB 风险偏好回升，高 beta 与 AI 讨论活跃。" : "WSB 情绪未形成一致追涨，短线偏观察。"
-  };
+  throw lastError || new Error("Reddit upstream unavailable");
 }
 
 function classifyBenzingaError(error) {
@@ -2353,7 +2372,7 @@ export async function buildSnapshot(req) {
     alphaMacro: alphaMacro.data || null
   }), generatedAt, { indices: lastGoodIndices(), quotes: lastGoodQuotes() });
   const [reddit, benzingaNews, finnhubNews, marketWatchNews, reutersNews, secNews] = await Promise.all([
-    settleSource("reddit", loadReddit, generatedAt, { score: null, tone: "UNAVAILABLE", mentions: [], summary: "数据源不可用。" }),
+    settleSource("reddit", loadReddit, generatedAt, { score: 50, tone: "中性", mentions: [["NVDA",0],["AMD",0],["PLTR",0],["MSFT",0]], summary: "Reddit 实时源暂不可用，使用本地代理热度。", dataQuality: "proxy" }),
     settleSource("benzinga", loadBenzingaNews, generatedAt, [], "Benzinga API"),
     settleSource("finnhubNews", () => loadFinnhubNews(symbols), generatedAt, [], "Finnhub News"),
     settleSource("marketWatchNews", loadMarketWatchNews, generatedAt, [], "MarketWatch RSS"),
@@ -2915,7 +2934,7 @@ export default async function handler(req, res) {
         marketBreadth: fallbackSource("marketBreadth", {}),
         decisionEngine: fallbackSource("decisionEngine", {}),
         marketData: fallbackSource("marketData", { indices: lastGoodIndices(), quotes: lastGoodQuotes() }),
-        reddit: fallbackSource("reddit", { score: null, tone: "UNAVAILABLE", mentions: [], summary: "数据源不可用。" }),
+        reddit: fallbackSource("reddit", { score: 50, tone: "中性", mentions: [["NVDA",0],["AMD",0],["PLTR",0],["MSFT",0]], summary: "Reddit 实时源暂不可用，使用本地代理热度。", dataQuality: "proxy" }),
         tradingView: fallbackSource("tradingView", []),
         xMacro: fallbackSource("xMacro", []),
         finviz: fallbackSource("finviz", []),
