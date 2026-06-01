@@ -2161,6 +2161,28 @@ function renderRiskInputs(risk) {
 }
 
 
+function shortSectorName(name = "") {
+  const map = {
+    "通信服务": "通信",
+    "可选消费": "消费",
+    "必选消费": "必消",
+    "公用事业": "公用",
+    "房地产": "地产",
+    "Technology": "科技",
+    "Communication Services": "通信",
+    "Consumer Discretionary": "消费",
+    "Consumer Staples": "必消",
+    "Utilities": "公用",
+    "Real Estate": "地产",
+    "Healthcare": "医疗",
+    "Financials": "金融",
+    "Energy": "能源",
+    "Industrials": "工业",
+    "Materials": "材料"
+  };
+  return map[name] || name || "";
+}
+
 function renderMarketStructurePro(rawData = {}) {
   const data = rawData?.data && rawData.data.sectorRotation ? rawData.data : rawData;
   const sectorRotation = data.sectorRotation || {};
@@ -2178,14 +2200,16 @@ function renderMarketStructurePro(rawData = {}) {
   const breadthScore = Number.isFinite(Number(breadthPro.breadthScore)) ? Number(breadthPro.breadthScore) : 45;
 
   const sectorValue = topSector
-    ? `${topSector.sector || topSector.symbol} ${Math.round(topSector.score ?? sectorScore)}`
-    : "结构参考";
+    ? `${topSector.symbol || "板块"} ${shortSectorName(topSector.sector || topSector.name || "")}`.trim()
+    : "板块分化";
   const yieldValue = Number.isFinite(Number(yieldCurve.dgs10))
-    ? `${formatNumber(yieldCurve.dgs10)}% · ${displayStructureState(yieldCurve.curveState)}`
-    : "部分数据";
+    ? `10Y ${formatNumber(yieldCurve.dgs10)}%`
+    : Number.isFinite(Number(yieldCurve.fedFunds))
+      ? `Fed ${formatNumber(yieldCurve.fedFunds)}%`
+      : "利率参考";
   const oilValue = oilRows.length
-    ? `${formatNumber(oilRows[0]?.price)} · ${signed(oil.avgChange ?? oilRows[0]?.changePercent ?? 0)}`
-    : "结构参考";
+    ? `${oilRows[0]?.symbol === "CL=F" ? "WTI" : (oilRows[0]?.name || oilRows[0]?.symbol || "原油")} ${formatNumber(oilRows[0]?.price)}`
+    : "原油参考";
   const fedValue = Number.isFinite(Number(fedWatch.nearCutProbability))
     ? `${Math.round(Number(fedWatch.nearCutProbability))}%`
     : "代理观察";
@@ -2270,7 +2294,8 @@ function displayStructureState(value) {
     LOWER_INFLATION_PRESSURE: "通胀压力缓和",
     NEUTRAL_OIL_PRESSURE: "原油中性",
     DOVISH_REPRICING: "鸽派重定价",
-    HIGHER_FOR_LONGER: "Higher for Longer",
+    HIGHER_FOR_LONGER: "高利率更久",
+    INSUFFICIENT_YIELD_DATA: "数据不足",
     MODERATE_EASING: "温和降息预期",
     HEALTHY_BREADTH: "宽度健康",
     WEAK_BREADTH: "宽度偏弱",
