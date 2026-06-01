@@ -10,6 +10,7 @@ import { buildMarketRegime } from "../lib/market-regime.js";
 import { buildStrategySummary } from "../lib/strategy-engine.js";
 import { buildTradePlan } from "../lib/trade-plan.js";
 import { buildWatchlist } from "../lib/watchlist-engine.js";
+import { buildMarketStructurePro } from "../lib/market-structure-pro.js";
 
 const MARKET_SYMBOLS = {
   SPY: "SPY",
@@ -31,6 +32,11 @@ const sourceCatalog = {
   relativeVolume: "Relative Volume Scanner",
   premarketMomentum: "Premarket Momentum Engine",
   marketBreadth: "Market Breadth Engine",
+  marketStructurePro: "Market Structure Pro",
+  yieldCurve: "Yield Curve Pro",
+  oilLayer: "Oil Market Layer",
+  fedWatch: "FedWatch Proxy",
+  breadthPro: "Breadth Pro",
   decisionEngine: "Decision Engine",
   newsAggregator: "News Aggregator",
   marketData: "Multi-source Market Data",
@@ -77,6 +83,12 @@ const symbolMeta = {
   XLE: ["Energy Select Sector SPDR", "Energy"],
   XLV: ["Health Care Select Sector SPDR", "Healthcare"],
   XLY: ["Consumer Discretionary Select Sector SPDR", "Consumer"],
+  XLP: ["Consumer Staples Select Sector SPDR", "Consumer Staples"],
+  XLI: ["Industrial Select Sector SPDR", "Industrials"],
+  XLB: ["Materials Select Sector SPDR", "Materials"],
+  XLU: ["Utilities Select Sector SPDR", "Utilities"],
+  XLRE: ["Real Estate Select Sector SPDR", "Real Estate"],
+  XLC: ["Communication Services Select Sector SPDR", "Communication Services"],
   IWM: ["iShares Russell 2000 ETF", "Small Caps"],
   XOM: ["Exxon Mobil", "能源"],
   CVX: ["Chevron", "能源"],
@@ -204,7 +216,12 @@ const SOURCE_PLANS = {
   optionsSignals: { primary: "marketData + RVOL + sectorHeat", backups: ["premarketMomentum", "newsCatalysts", "lastKnownGood cache"] },
   relativeVolume: { primary: "marketData quote volume", backups: ["TradingView volume", "premarketMomentum proxy", "lastKnownGood cache"] },
   premarketMomentum: { primary: "marketData quotes", backups: ["TradingView Screener", "relativeVolume", "newsCatalysts", "lastKnownGood cache"] },
-  marketBreadth: { primary: "marketData breadth proxy", backups: ["sectorHeat", "TradingView participation", "lastKnownGood cache"] }
+  marketBreadth: { primary: "marketData breadth proxy", backups: ["sectorHeat", "TradingView participation", "lastKnownGood cache"] },
+  marketStructurePro: { primary: "Sector ETFs + Yield Curve + Oil + Breadth", backups: ["marketData", "FRED", "AlphaVantage", "lastKnownGood cache"] },
+  yieldCurve: { primary: "FRED DGS2/DGS10/DGS30", backups: ["AlphaVantage treasury", "lastKnownGood cache"] },
+  oilLayer: { primary: "TwelveData/Yahoo oil futures", backups: ["snapshot proxy", "lastKnownGood cache"] },
+  fedWatch: { primary: "FedWatch proxy from yields", backups: ["FRED", "market regime", "lastKnownGood cache"] },
+  breadthPro: { primary: "Market breadth proxy + sector ETFs", backups: ["quote participation", "lastKnownGood cache"] }
 };
 
 function envValue(name) {
@@ -937,7 +954,9 @@ function twelveDataSymbol(symbol = "") {
     TNX: "TNX",
     DXY: "DXY",
     GOLD: "XAU/USD",
-    "GC=F": "XAU/USD"
+    "GC=F": "XAU/USD",
+    "CL=F": "WTI/USD",
+    "BZ=F": "BRENT/USD"
   };
   return map[symbol] || symbol;
 }
@@ -1151,7 +1170,7 @@ async function loadTwelveDataMarketData(symbols) {
   const token = envValue("TWELVEDATA_API_KEY");
   console.log("TWELVEDATA_API_KEY_EXISTS:", !!token);
   if (!token) return { data: [], status: "unavailable", label: "TwelveData", error: "TWELVEDATA_API_KEY is not configured" };
-  const originalSymbols = ["NDX", "VIX", "DXY", "GOLD"];
+  const originalSymbols = ["NDX", "VIX", "DXY", "GOLD", "CL=F", "BZ=F"];
   const providerSymbols = originalSymbols.map(twelveDataSymbol);
   const latencies = [];
   const rows = await Promise.all(originalSymbols.map(async (symbol, index) => {
@@ -1707,7 +1726,7 @@ async function loadAlphaVantageMacro() {
   if (!token) return { data: null, status: "unavailable", label: "AlphaVantage", error: "ALPHAVANTAGE_API_KEY is not configured" };
   try {
     const startedAt = Date.now();
-    const [dgs10, dgs2, sector] = await Promise.all([
+    const [dgs10, dgs2, dgs30, sector] = await Promise.all([
       fetchJsonWithDebug("ALPHAVANTAGE_TREASURY_10Y", `https://www.alphavantage.co/query?function=TREASURY_YIELD&interval=daily&maturity=10year&apikey=${encodeURIComponent(token)}`, { timeoutMs: 4200 }).catch((error) => {
         console.error("ALPHAVANTAGE ERROR:", { function: "TREASURY_YIELD_10Y", reason: error.message });
         return null;
@@ -1716,13 +1735,17 @@ async function loadAlphaVantageMacro() {
         console.error("ALPHAVANTAGE ERROR:", { function: "TREASURY_YIELD_2Y", reason: error.message });
         return null;
       }),
+      fetchJsonWithDebug("ALPHAVANTAGE_TREASURY_30Y", `https://www.alphavantage.co/query?function=TREASURY_YIELD&interval=daily&maturity=30year&apikey=${encodeURIComponent(token)}`, { timeoutMs: 4200 }).catch((error) => {
+        console.error("ALPHAVANTAGE ERROR:", { function: "TREASURY_YIELD_30Y", reason: error.message });
+        return null;
+      }),
       fetchJsonWithDebug("ALPHAVANTAGE_SECTOR", `https://www.alphavantage.co/query?function=SECTOR&apikey=${encodeURIComponent(token)}`, { timeoutMs: 4200 }).catch((error) => {
         console.error("ALPHAVANTAGE ERROR:", { function: "SECTOR", reason: error.message });
         return null;
       })
     ]);
-    if (!dgs10 && !dgs2 && !sector) return { data: null, status: "delayed", label: "AlphaVantage", error: "AlphaVantage macro unavailable", latency: Date.now() - startedAt, confidence: "LOW", fallback: true };
-    return { data: { dgs10, dgs2, sector }, status: "delayed", label: "AlphaVantage", latency: Date.now() - startedAt, confidence: "MEDIUM", fallback: false };
+    if (!dgs10 && !dgs2 && !dgs30 && !sector) return { data: null, status: "delayed", label: "AlphaVantage", error: "AlphaVantage macro unavailable", latency: Date.now() - startedAt, confidence: "LOW", fallback: true };
+    return { data: { dgs10, dgs2, dgs30, sector }, status: "delayed", label: "AlphaVantage", latency: Date.now() - startedAt, confidence: "MEDIUM", fallback: false };
   } catch (error) {
     console.error("ALPHAVANTAGE ERROR:", { reason: error.message, stack: error.stack || null });
     return { data: null, status: "delayed", label: "AlphaVantage", error: error.message, confidence: "LOW", fallback: true };
@@ -1733,7 +1756,7 @@ async function loadFredMacro() {
   const token = envValue("FRED_API_KEY");
   console.log("FRED_API_KEY_EXISTS:", !!token);
   if (!token) return { data: [], status: "unavailable", label: "FRED", error: "FRED_API_KEY is not configured" };
-  const ids = ["FEDFUNDS", "DGS10", "DGS2", "UNRATE", "CPIAUCSL"];
+  const ids = ["FEDFUNDS", "DGS10", "DGS2", "DGS30", "UNRATE", "CPIAUCSL"];
   const startedAt = Date.now();
   const latencies = [];
   const data = await Promise.all(ids.map(async (id) => {
@@ -2297,7 +2320,7 @@ export async function buildSnapshot(req) {
     ALPHAVANTAGE_API_KEY: !!envValue("ALPHAVANTAGE_API_KEY"),
     FRED_API_KEY: !!envValue("FRED_API_KEY")
   });
-  const defaultSymbols = "SPY,QQQ,NVDA,AMD,AVGO,MRVL,MSFT,AMZN,META,TSLA,PLTR,ORCL,CRWD,COIN,MSTR,DASH,CSCO,LLY,AAPL,XLK,SMH,SOXX,XLF,XLE,XLV,XLY,IWM,IBIT";
+  const defaultSymbols = "SPY,QQQ,NVDA,AMD,AVGO,MRVL,MSFT,AMZN,META,TSLA,PLTR,ORCL,CRWD,COIN,MSTR,DASH,CSCO,LLY,AAPL,XLK,SMH,SOXX,XLF,XLE,XLV,XLY,XLP,XLI,XLB,XLU,XLRE,XLC,IWM,IBIT,CL=F,BZ=F";
   const symbols = cleanSymbols(req?.query?.symbols || defaultSymbols);
   const marketSymbols = `${Object.values(MARKET_SYMBOLS).join(",")},${symbols}`;
   const finnhubProbe = await loadFinnhubStrictProbe();
@@ -2421,6 +2444,26 @@ export async function buildSnapshot(req) {
     status: marketData.status === "live" ? "live" : marketData.status === "delayed" ? "delayed" : "stale"
   });
   const marketBreadthLayer = await settleSource("marketBreadth", async () => marketBreadthData, generatedAt, {}, "Market Breadth Engine");
+  let marketStructureProData = { status: "unavailable", source: "Market Structure Pro", error: "not_generated" };
+  try {
+    marketStructureProData = buildMarketStructurePro({
+      quotes,
+      sectors: sectorData,
+      indices: marketData.data?.indices || [],
+      fredRows: fredMacro.data || [],
+      alphaMacro: alphaMacro.data || null,
+      marketBreadth: marketBreadthLayer.data || marketBreadthData,
+      marketRegime: riskRegime
+    });
+  } catch (error) {
+    console.error("[SNAPSHOT ENGINE ERROR] marketStructurePro", error?.message || error);
+    marketStructureProData = { status: "unavailable", source: "Market Structure Pro", error: error?.message || "source_failed" };
+  }
+  const marketStructureProSource = stableModuleSource("marketStructurePro", source("marketStructurePro", marketStructureProData, marketStructureProData.status || "delayed", generatedAt, "Market Structure Pro", {
+    confidence: marketStructureProData.confidence || "MEDIUM",
+    error: marketStructureProData.error || null,
+    sourcePlan: sourcePlanFor("marketStructurePro")
+  }));
   let premarketScanner = [];
   try {
     premarketScanner = runPremarketScanner({
@@ -2618,6 +2661,11 @@ export async function buildSnapshot(req) {
     },
     indices: normalizedMarketDataSource.data?.indices || normalizedMarketDataSource.indices || [],
     breadth: marketBreadthLayer.data || marketBreadthData || {},
+    marketStructurePro: marketStructureProSource.data || marketStructureProData || {},
+    yieldCurve: marketStructureProData.yieldCurve || {},
+    oil: marketStructureProData.oil || {},
+    fedWatch: marketStructureProData.fedWatch || {},
+    breadthPro: marketStructureProData.breadthPro || {},
     sectors: sectorData,
     sectorHeat: sectorHeatSource.data || sectorHeatData,
     newsCatalysts: newsCatalystsSource.data || newsCatalysts,
@@ -2641,6 +2689,11 @@ export async function buildSnapshot(req) {
         freshness: nowIso(generatedAt)
       },
       marketStructure: marketBreadthLayer.data || marketBreadthData,
+      marketStructurePro: marketStructureProSource.data || marketStructureProData,
+      yieldCurve: marketStructureProData.yieldCurve || {},
+      oil: marketStructureProData.oil || {},
+      fedWatch: marketStructureProData.fedWatch || {},
+      breadthPro: marketStructureProData.breadthPro || {},
       earnings: earningsLayer.data || { events: [] },
       insider: insiderLayer.data || { signals: [] },
       relativeVolume: relativeVolumeLayer.data || { leaders: [] },
@@ -2677,6 +2730,11 @@ export async function buildSnapshot(req) {
         relativeVolume: relativeVolumeLayer,
         premarketMomentum: premarketMomentumLayer,
         marketBreadth: marketBreadthLayer,
+        marketStructurePro: marketStructureProSource,
+        yieldCurve: source("yieldCurve", marketStructureProData.yieldCurve || {}, marketStructureProData.yieldCurve?.status || "proxy", generatedAt, "Yield Curve Pro", { confidence: marketStructureProData.yieldCurve?.confidence || "LOW" }),
+        oilLayer: source("oilLayer", marketStructureProData.oil || {}, marketStructureProData.oil?.status || "proxy", generatedAt, "Oil Market Layer", { confidence: marketStructureProData.oil?.confidence || "LOW" }),
+        fedWatch: source("fedWatch", marketStructureProData.fedWatch || {}, marketStructureProData.fedWatch?.status || "proxy", generatedAt, "FedWatch Proxy", { confidence: marketStructureProData.fedWatch?.confidence || "LOW" }),
+        breadthPro: source("breadthPro", marketStructureProData.breadthPro || {}, marketStructureProData.breadthPro?.status || "proxy", generatedAt, "Breadth Pro", { confidence: marketStructureProData.breadthPro?.confidence || "LOW" }),
         decisionEngine,
         marketData: normalizedMarketDataSource,
         reddit,

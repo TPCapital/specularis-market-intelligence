@@ -311,3 +311,27 @@ Deep 模式会尝试更多外部源，适合手动刷新缓存，不建议作为
 ```
 
 说明 P0 + P1 都生效。
+
+## V6.5 P2 Market Structure Pro
+
+本版完成 P2 数据层升级，重点补齐市场结构数据：
+
+- **P2-A 11 大板块 ETF**：新增 XLK / XLF / XLE / XLV / XLY / XLP / XLI / XLB / XLU / XLRE / XLC 的 Sector Rotation Pro。
+- **P2-B Yield Curve**：新增 2Y / 10Y / 30Y 收益率曲线结构，自动计算 2Y-10Y 与 10Y-30Y，并输出曲线状态。
+- **P2-C Oil Layer**：新增 WTI / Brent 原油层，用于通胀预期、能源板块、利率敏感资产判断。
+- **P2-D FedWatch Proxy**：新增基于收益率曲线、10Y、原油、风险偏好的降息概率代理。注意：当前不是 CME 官方 FedWatch。
+- **P2-E Breadth Pro**：新增 >20MA / >50MA / >200MA 代理宽度指标与 Breadth Score。注意：当前是股票池代理，不是全市场官方宽度。
+
+新增输出位置：
+
+- `/api/snapshot` 顶层：`marketStructurePro`, `yieldCurve`, `oil`, `fedWatch`, `breadthPro`
+- `/api/snapshot.sources`：`marketStructurePro`, `yieldCurve`, `oilLayer`, `fedWatch`, `breadthPro`
+- `/api/daily-report`：日报的宏观、板块、宽度章节会自动引用 P2 数据。
+
+完成度说明：
+
+- 11 大板块 ETF：已接入结构与 fallback，若行情源能返回 ETF quote 则自动升级为 delayed/live。
+- Yield Curve：FRED 增加 DGS30；AlphaVantage 增加 30year Treasury backup。
+- Oil：已加 WTI / Brent 结构与 fallback；真实价格依赖 TwelveData/Yahoo/后续数据源可用性。
+- FedWatch：已实现 Proxy，暂未接入 CME 官方概率。
+- Breadth Pro：已实现代理均线参与度；暂未接入真实全市场 >20MA/>50MA/>200MA。

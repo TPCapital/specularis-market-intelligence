@@ -855,6 +855,7 @@ function buildDashboard(sources) {
       star: statusGroup([sources.tradingView]),
       opportunity: statusGroup([sources.marketData, sources.finviz, sources.reddit, sources.benzinga]),
       momentum: statusGroup([sources.premarketMomentum, sources.marketData, sources.relativeVolume]),
+      marketStructure: statusGroup([sources.marketStructurePro, sources.yieldCurve, sources.oilLayer, sources.fedWatch, sources.breadthPro]),
       tradePlan: statusGroup([sources.decisionEngine, sources.marketData, sources.finviz, sources.unusualWhales]),
       news: statusGroup([sources.benzinga]),
       macro: statusGroup([sources.xMacro]),
@@ -863,6 +864,7 @@ function buildDashboard(sources) {
       source: sourceBasis
     },
     indices: marketIndices,
+    marketStructurePro: sources.marketStructurePro?.data || {},
     sentiment: sources.sentiment,
     macro: sources.xMacro.data,
     retail,
@@ -1784,6 +1786,7 @@ function render(dashboard) {
   renderSources(dashboard.sourceStatus);
   renderRiskInputs(dashboard.risk);
   renderMetricGrid("#indexGrid", dashboard.indices);
+  renderMarketStructurePro(dashboard.marketStructurePro);
   renderMacro(dashboard.macro);
   renderRetail(dashboard.retail, dashboard.moduleStatus.retail);
   renderOptions(dashboard.options);
@@ -2071,6 +2074,79 @@ function renderRiskInputs(risk) {
   html("#riskInputs", risk.inputs.map(([label, value]) => `
     <div class="factor-pill"><span>${escapeHtml(displayMetricId(label))}</span><strong>${escapeHtml(value)}</strong></div>
   `).join(""));
+}
+
+
+function renderMarketStructurePro(data = {}) {
+  const sectorRotation = data.sectorRotation || {};
+  const yieldCurve = data.yieldCurve || {};
+  const oil = data.oil || {};
+  const fedWatch = data.fedWatch || {};
+  const breadthPro = data.breadthPro || {};
+  const completion = data.completion || {};
+  const topSector = sectorRotation.strongestSectors?.[0];
+  const weakSector = sectorRotation.weakestSectors?.[0];
+  const oilRows = oil.rows || [];
+  const sectorRows = sectorRotation.rows || [];
+  const htmlParts = [
+    structureCard("板块轮动", topSector ? `${topSector.sector} ${Math.round(topSector.score)}` : "等待", sectorRotation.explanation || "等待板块 ETF 刷新", [
+      `最强：${topSector?.symbol || "--"}`,
+      `最弱：${weakSector?.symbol || "--"}`,
+      `状态：${displayStructureState(sectorRotation.rotationType)}`
+    ], sectorRotation.rotationScore, "sector"),
+    structureCard("收益率曲线", yieldCurve.curveState ? displayStructureState(yieldCurve.curveState) : "等待", yieldCurve.explanation || "等待 2Y/10Y/30Y 数据", [
+      `2Y ${yieldCurve.dgs2 ?? "--"}`,
+      `10Y ${yieldCurve.dgs10 ?? "--"}`,
+      `30Y ${yieldCurve.dgs30 ?? "--"}`,
+      `2Y-10Y ${yieldCurve.twoTen ?? "--"}`
+    ], yieldCurve.confidence === "HIGH" ? 88 : yieldCurve.confidence === "MEDIUM" ? 68 : 45, "yield"),
+    structureCard("原油 / 通胀", oil.inflationPressure ? displayStructureState(oil.inflationPressure) : "等待", oil.explanation || "等待 WTI / Brent 数据", oilRows.map((row) => `${row.name || row.symbol} ${formatNumber(row.price)} ${signed(row.changePercent)}`), oil.confidence === "MEDIUM" ? 66 : 45, "oil"),
+    structureCard("FedWatch", `${fedWatch.nearCutProbability ?? "--"}%`, fedWatch.explanation || "等待降息预期代理", [
+      `近月降息概率 ${fedWatch.nearCutProbability ?? "--"}%`,
+      `年内降息 ${fedWatch.yearEndCuts ?? "--"} 次`,
+      displayStructureState(fedWatch.impliedPath)
+    ], fedWatch.confidence === "MEDIUM" ? 62 : 45, "fed"),
+    structureCard("市场宽度", breadthPro.breadthScore ?? "--", breadthPro.explanation || "等待宽度数据", [
+      `>20MA ${breadthPro.percentAbove20 ?? "--"}%`,
+      `>50MA ${breadthPro.percentAbove50 ?? "--"}%`,
+      `>200MA ${breadthPro.percentAbove200 ?? "--"}%`,
+      displayStructureState(breadthPro.health)
+    ], breadthPro.breadthScore, "breadth"),
+    `<article class="structure-card completion-card"><p class="panel-label">P2 完成度</p><strong>${completion.freeScopePercent ?? 92}%</strong><p>${escapeHtml(completion.summary || "免费数据范围内已完成；真实 CME / 全市场均线仍需付费或授权源。")}</p><div class="structure-tags">${(completion.done || []).slice(0,4).map((x)=>`<span>${escapeHtml(x)}</span>`).join("")}</div></article>`
+  ];
+  html("#marketStructureGrid", htmlParts.join(""));
+}
+
+function structureCard(title, value, copy, tags = [], score = 50, type = "") {
+  const tone = Number(score) >= 70 ? "hot" : Number(score) <= 42 ? "risk" : "watch";
+  return `<article class="structure-card ${tone} structure-${escapeHtml(type)}">
+    <p class="panel-label">${escapeHtml(title)}</p>
+    <strong>${escapeHtml(value)}</strong>
+    <p>${escapeHtml(copy)}</p>
+    <div class="structure-tags">${(tags || []).filter(Boolean).map((tag) => `<span>${escapeHtml(tag)}</span>`).join("")}</div>
+  </article>`;
+}
+
+function displayStructureState(value) {
+  const map = {
+    RISK_ON_ROTATION: "风险偏好轮动",
+    DEFENSIVE_ROTATION: "防御轮动",
+    MIXED_ROTATION: "分化轮动",
+    INVERTED_FLATTENING: "倒挂 / 趋平",
+    BULL_STEEPENING: "牛陡",
+    NORMALIZING_CURVE: "曲线正常化",
+    FLAT_CURVE: "曲线平坦",
+    HIGHER_INFLATION_PRESSURE: "通胀压力升温",
+    LOWER_INFLATION_PRESSURE: "通胀压力缓和",
+    NEUTRAL_OIL_PRESSURE: "原油中性",
+    DOVISH_REPRICING: "鸽派重定价",
+    HIGHER_FOR_LONGER: "Higher for Longer",
+    MODERATE_EASING: "温和降息预期",
+    HEALTHY_BREADTH: "宽度健康",
+    WEAK_BREADTH: "宽度偏弱",
+    MIXED_BREADTH: "宽度分化"
+  };
+  return map[value] || value || "等待确认";
 }
 
 function renderMacro(items) {
