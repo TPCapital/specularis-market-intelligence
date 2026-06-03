@@ -20,7 +20,9 @@ const MARKET_SYMBOLS = {
   TNX: "^TNX",
   DXY: "DX-Y.NYB",
   GOLD: "GC=F",
-  NDX: "^NDX"
+  NDX: "^NDX",
+  WTI: "CL=F",   // WTI 原油 — Yahoo Chart / Stooq 兜底
+  BRENT: "BZ=F"  // Brent 原油 — Yahoo Chart / Stooq 兜底
 };
 
 const sourceCatalog = {
@@ -111,7 +113,9 @@ const MARKET_INDEX_META = {
   VIX: "VOLATILITY",
   TNX: "10Y YIELD",
   DXY: "DOLLAR INDEX",
-  GOLD: "GOLD"
+  GOLD: "GOLD",
+  WTI: "WTI 原油",
+  BRENT: "Brent 原油"
 };
 
 const INDEX_SOURCE_MAP = {
@@ -160,6 +164,18 @@ const INDEX_SOURCE_MAP = {
     { type: "alpha", provider: "AlphaVantage XAU/USD", symbol: "GOLD", quality: "DELAYED" },
     { type: "yahooChart", provider: "Yahoo Chart", symbol: "GC=F", quality: "DELAYED" },
     { type: "stooq", provider: "Stooq CSV", symbol: "gc.f", quality: "DELAYED" },
+    { type: "lastKnownGood", provider: "lastKnownGood", quality: "CACHED" }
+  ],
+  // 原油期货 — TwelveData 免费档不支持，走 Yahoo Chart + Stooq
+  // key 与 MARKET_SYMBOLS 保持一致（WTI/BRENT），symbol 字段传真实期货代码
+  WTI: [
+    { type: "yahooChart", provider: "Yahoo Chart", symbol: "CL=F", quality: "DELAYED" },
+    { type: "stooq", provider: "Stooq CSV", symbol: "cl.f", quality: "DELAYED" },
+    { type: "lastKnownGood", provider: "lastKnownGood", quality: "CACHED" }
+  ],
+  BRENT: [
+    { type: "yahooChart", provider: "Yahoo Chart", symbol: "BZ=F", quality: "DELAYED" },
+    { type: "stooq", provider: "Stooq CSV", symbol: "bz.f", quality: "DELAYED" },
     { type: "lastKnownGood", provider: "lastKnownGood", quality: "CACHED" }
   ]
 };
@@ -946,6 +962,8 @@ function finnhubSymbol(symbol = "") {
 }
 
 function twelveDataSymbol(symbol = "") {
+  // TwelveData 免费档可用符号映射
+  // WTI/BRENT 原油在免费档不存在，由 Yahoo Chart 兜底，此处返回 null 跳过
   const map = {
     "^VIX": "VIX",
     "^NDX": "NDX",
@@ -957,10 +975,12 @@ function twelveDataSymbol(symbol = "") {
     DXY: "DXY",
     GOLD: "XAU/USD",
     "GC=F": "XAU/USD",
-    "CL=F": "WTI/USD",
-    "BZ=F": "BRENT/USD"
+    "CL=F": null,
+    "BZ=F": null
   };
-  return map[symbol] || symbol;
+  const v = map[symbol];
+  if (v === null) return null;
+  return v !== undefined ? v : symbol;
 }
 
 function responseCodeFromError(error) {
@@ -1169,42 +1189,69 @@ async function loadFinnhubStrictProbe() {
 }
 
 async function loadTwelveDataMarketData(symbols) {
+  // 重构：从每个符号2次请求 → 单次批量 /quote 请求
+  // 原因：原实现对6个符号发12次请求，在 Vercel 10s 限制内必然超时或耗尽配额
+  // TwelveData /quote 支持逗号分隔批量，1次请求返回所有符号数据
+  // 同时移除免费档不支持的 CL=F/BZ=F（twelveDataSymbol 返回 null 跳过）
   const token = envValue("TWELVEDATA_API_KEY");
-  console.log("TWELVEDATA_API_KEY_EXISTS:", !!token);
   if (!token) return { data: [], status: "unavailable", label: "TwelveData", error: "TWELVEDATA_API_KEY is not configured" };
-  const originalSymbols = ["NDX", "VIX", "DXY", "GOLD", "CL=F", "BZ=F"];
-  const providerSymbols = originalSymbols.map(twelveDataSymbol);
-  const latencies = [];
-  const rows = await Promise.all(originalSymbols.map(async (symbol, index) => {
-    const provider = providerSymbols[index];
-    const endpoint = `https://api.twelvedata.com/price?symbol=${encodeURIComponent(provider)}&apikey=***`;
-    try {
-      const startedAt = Date.now();
-      const pricePayload = await fetchJsonWithDebug("TWELVEDATA", `https://api.twelvedata.com/price?symbol=${encodeURIComponent(provider)}&apikey=${encodeURIComponent(token)}`, { timeoutMs: 4200 });
-      const latencyMs = Date.now() - startedAt;
-      latencies.push(latencyMs);
-      console.log("[snapshot:twelvedata] fetch success", { symbol, providerSymbol: provider, endpoint, responseCode: 200, latencyMs });
-      const price = Number(pricePayload?.price);
+
+  // 只取 twelveDataSymbol 有映射的符号（跳过 null）
+  const candidates = ["NDX", "VIX", "DXY", "GOLD", "SPY", "QQQ"];
+  const pairs = candidates
+    .map(s => ({ orig: s, td: twelveDataSymbol(s) }))
+    .filter(p => p.td !== null && p.td);
+
+  if (!pairs.length) {
+    return { data: [], status: "unavailable", label: "TwelveData", error: "no_valid_symbols" };
+  }
+
+  const batchSymbol = pairs.map(p => p.td).join(",");
+  const startedAt = Date.now();
+
+  try {
+    const url = `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(batchSymbol)}&apikey=${encodeURIComponent(token)}`;
+    const payload = await fetchJsonWithDebug("TWELVEDATA_BATCH", url, { timeoutMs: 5000 });
+    const latencyMs = Date.now() - startedAt;
+
+    // 批量返回时顶层是 { "NDX": {...}, "VIX": {...} }
+    // 单个返回时顶层直接是 quote 对象（有 symbol 字段）
+    const isSingle = payload && typeof payload.symbol === "string";
+    const quoteMap = isSingle
+      ? { [payload.symbol]: payload }
+      : (payload || {});
+
+    const rows = pairs.map(({ orig, td }) => {
+      const q = quoteMap[td] || quoteMap[orig];
+      if (!q || q.status === "error") {
+        console.log("[snapshot:twelvedata] symbol unavailable", { orig, td, message: q?.message });
+        return lastGoodTwelveDataQuotes.get(orig) || null;
+      }
+      const price = Number(q.close || q.price || q.previous_close);
       if (!Number.isFinite(price) || price <= 0) {
-        console.log("[snapshot:twelvedata] fetch fail", { symbol, providerSymbol: provider, endpoint, responseCode: 200, reason: pricePayload?.message || "empty-price" });
-        return lastGoodTwelveDataQuotes.get(symbol) || null;
+        return lastGoodTwelveDataQuotes.get(orig) || null;
       }
-      let quotePayload = {};
-      try {
-        quotePayload = await fetchJsonWithDebug("TWELVEDATA_QUOTE", `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(provider)}&apikey=${encodeURIComponent(token)}`, { timeoutMs: 4200 });
-      } catch (error) {
-        console.error("TWELVEDATA ERROR:", { symbol, providerSymbol: provider, responseCode: responseCodeFromError(error), reason: error.message });
-      }
-      return normalizeProviderQuote(symbol, { ...quotePayload, price, close: price }, "TwelveData", "DELAYED");
-    } catch (error) {
-      console.error("TWELVEDATA ERROR:", { symbol, providerSymbol: provider, endpoint, responseCode: responseCodeFromError(error), reason: error.message });
-      return lastGoodTwelveDataQuotes.get(symbol) || null;
-    }
-  }));
-  const data = rows.filter(Boolean);
-  return data.length
-    ? { data, status: "delayed", label: "TwelveData", latency: latencies.length ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : null, confidence: "MEDIUM", fallback: false }
-    : { data: [], status: "delayed", label: "TwelveData", error: "TwelveData returned no usable quotes", confidence: "LOW", fallback: true };
+      const normalized = normalizeProviderQuote(orig, { ...q, price, close: price }, "TwelveData", "DELAYED");
+      if (normalized) lastGoodTwelveDataQuotes.set(orig, normalized);
+      return normalized;
+    }).filter(Boolean);
+
+    console.log("[snapshot:twelvedata] batch done", {
+      requested: pairs.length, returned: rows.length, latencyMs
+    });
+
+    return rows.length
+      ? { data: rows, status: "delayed", label: "TwelveData", latency: latencyMs, confidence: "MEDIUM", fallback: false }
+      : { data: [], status: "delayed", label: "TwelveData", error: "TwelveData returned no usable quotes", confidence: "LOW", fallback: true };
+
+  } catch (error) {
+    console.error("TWELVEDATA BATCH ERROR:", { reason: error.message, latencyMs: Date.now() - startedAt });
+    // 用上次缓存的数据兜底
+    const fallback = candidates.map(s => lastGoodTwelveDataQuotes.get(s)).filter(Boolean);
+    return fallback.length
+      ? { data: fallback, status: "cached", label: "TwelveData", error: error.message, confidence: "LOW", fallback: true }
+      : { data: [], status: "unavailable", label: "TwelveData", error: error.message, confidence: "LOW", fallback: true };
+  }
 }
 
 async function loadFinnhubQuotes(symbols) {
@@ -1467,21 +1514,88 @@ async function loadTradingView() {
 }
 
 async function loadReddit() {
-  const endpoints = [
-    "https://www.reddit.com/r/wallstreetbets/hot.json?limit=50",
-    "https://old.reddit.com/r/wallstreetbets/hot.json?limit=50",
-    "https://www.reddit.com/r/wallstreetbets/search.json?q=NVDA%20OR%20AMD%20OR%20PLTR%20OR%20MSFT%20OR%20AVGO&restrict_sr=1&sort=new&limit=50"
+  // Reddit 的 *.reddit.com/*.json 对数据中心 IP(Vercel)几乎一律 403。
+  // 优先用对服务器 IP 友好的镜像/RSS 端点,再降级回官方 JSON。
+  // 每个端点用统一的解析器抽取标题文本,计算 ticker 提及与情绪。
+  const jsonEndpoints = [
+    "https://www.reddit.com/r/wallstreetbets/hot.json?limit=50&raw_json=1",
+    "https://old.reddit.com/r/wallstreetbets/hot.json?limit=50&raw_json=1"
   ];
+  // RSS 端点:Reddit 的 .rss 通常比 .json 对服务器 IP 宽松
+  const rssEndpoints = [
+    "https://www.reddit.com/r/wallstreetbets/hot.rss?limit=50",
+    "https://www.reddit.com/r/wallstreetbets/.rss?limit=50"
+  ];
+
+  const browserHeaders = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+    Accept: "application/json,text/html,application/xhtml+xml,*/*",
+    "Accept-Language": "en-US,en;q=0.9"
+  };
+
+  const scoreTitles = (titles, provider) => {
+    if (!titles.length) throw new Error("Reddit empty feed");
+    const tickers = {};
+    let toneScore = 50;
+    for (const title of titles) {
+      const text = String(title || "").toUpperCase();
+      for (const symbol of Object.keys(symbolMeta)) {
+        const pattern = new RegExp(`(^|[^A-Z])${symbol}([^A-Z]|$)`, "i");
+        if (pattern.test(text)) tickers[symbol] = (tickers[symbol] || 0) + 1;
+      }
+      const lower = text.toLowerCase();
+      if (/(call|calls|moon|bull|buy|yolo|beat|breakout|squeeze|rip)/.test(lower)) toneScore += 1.6;
+      if (/(put|puts|bear|sell|short|miss|dump|crash|tank)/.test(lower)) toneScore -= 1.4;
+    }
+    const mentions = Object.entries(tickers).sort((a, b) => b[1] - a[1]).slice(0, 8);
+    const score = clamp(Math.round(toneScore));
+    return {
+      score,
+      tone: score >= 62 ? "偏乐观" : score <= 42 ? "偏谨慎" : "中性",
+      mentions,
+      summary: score >= 62 ? "WSB 风险偏好回升，高 beta 与 AI 讨论活跃。" : "WSB 情绪未形成一致追涨，短线偏观察。",
+      provider
+    };
+  };
+
+  let lastError = null;
+
+  // 1) RSS 优先(对服务器 IP 更宽松)
+  for (const endpoint of rssEndpoints) {
+    try {
+      const rss = await fetchText(endpoint, browserHeaders);
+      const titles = [...rss.matchAll(/<title[^>]*>([\s\S]*?)<\/title>/gi)]
+        .map((m) => stripXml(m[1]))
+        .filter((t) => t && !/^r\/wallstreetbets/i.test(t));
+      return scoreTitles(titles, "reddit-rss");
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  // 2) 降级回官方 JSON
+  for (const endpoint of jsonEndpoints) {
+    try {
+      const payload = await fetchJson(endpoint, { timeoutMs: 2800, headers: browserHeaders });
+      const posts = payload.data?.children?.map((item) => item.data) || [];
+      if (!posts.length) throw new Error("Reddit empty feed");
+      const titles = posts.map((p) => `${p.title || ""} ${p.selftext || ""}`);
+      return scoreTitles(titles, endpoint.includes("old.reddit") ? "old.reddit" : "reddit-json");
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error("Reddit upstream unavailable");
+}
+
+// 旧版 JSON-only 解析路径已废弃,保留下方变量以防其他引用(无副作用)。
+async function _loadRedditLegacy() {
+  const endpoints = [];
   let lastError = null;
   for (const endpoint of endpoints) {
     try {
-      const payload = await fetchJson(endpoint, {
-        timeoutMs: 2400,
-        headers: {
-          "User-Agent": "Mozilla/5.0 AIEquityFlowDashboard/1.0",
-          Accept: "application/json,text/plain,*/*"
-        }
-      });
+      const payload = await fetchJson(endpoint, { timeoutMs: 2400 });
       const posts = payload.data?.children?.map((item) => item.data) || [];
       if (!posts.length) throw new Error("Reddit empty feed");
       const tickers = {};
@@ -1631,7 +1745,18 @@ async function loadBenzingaNews() {
 
 async function loadMarketWatchNews() {
   try {
-    const rss = await fetchText("https://feeds.content.dowjones.io/public/rss/mw_topstories");
+    // dowjones.io RSS 已 403，改用 WSJ Markets + MarketWatch 备用
+    const feeds = [
+      "https://feeds.a.dj.com/rss/RSSMarketsMain.xml",
+      "https://www.marketwatch.com/rss/topstories",
+      "https://feeds.content.dowjones.io/public/rss/mw_marketpulse"
+    ];
+    let rss = null;
+    for (const feedUrl of feeds) {
+      try { rss = await fetchText(feedUrl); if (rss && rss.includes("<item>")) break; }
+      catch { rss = null; }
+    }
+    if (!rss) throw new Error("all_mw_feeds_failed");
     const items = normalizeNewsFeed(parseRssItems(rss, "MarketWatch"), "MarketWatch");
     if (!items.length) return { data: [], status: "unavailable", label: "MarketWatch", error: "no_realtime_news" };
     return { data: items, status: "delayed", label: "MarketWatch", error: null, fallback: false, confidence: "MEDIUM" };
@@ -1678,21 +1803,33 @@ async function loadSecFilingsNews() {
 }
 
 async function loadFinnhubCompanyNews(symbols) {
+  // 限制为 8 个核心 ticker（免费档 30req/min，20 并发必触发 429 导致全部失败）
+  // 优先 AI 主线 + 大型科技，分批串行避免限速
   const token = envValue("FINNHUB_API_KEY");
   if (!token) return [];
-  const tickers = cleanSymbols(symbols).split(",").filter((symbol) => symbolMeta[symbol]).slice(0, 20);
+  const PRIORITY = ["NVDA","MSFT","GOOGL","META","AMZN","AMD","AVGO","PLTR"];
+  const tickers = [
+    ...PRIORITY.filter(s => cleanSymbols(symbols).split(",").includes(s)),
+    ...cleanSymbols(symbols).split(",").filter(s => symbolMeta[s] && !PRIORITY.includes(s))
+  ].slice(0, 8);
   const to = new Date();
   const from = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const fmt = (date) => date.toISOString().slice(0, 10);
-  const companyNews = await Promise.all(tickers.map(async (symbol) => {
+  const results = [];
+  for (const symbol of tickers) {
     try {
-      const payload = await fetchJson(`https://finnhub.io/api/v1/company-news?symbol=${encodeURIComponent(symbol)}&from=${fmt(from)}&to=${fmt(to)}&token=${encodeURIComponent(token)}`, { timeoutMs: 4200 });
-      return (Array.isArray(payload) ? payload : []).slice(0, 3).map((item) => ({ ...item, relatedSymbol: symbol }));
+      const payload = await fetchJson(
+        `https://finnhub.io/api/v1/company-news?symbol=${encodeURIComponent(symbol)}&from=${fmt(from)}&to=${fmt(to)}&token=${encodeURIComponent(token)}`,
+        { timeoutMs: 3500 }
+      );
+      if (Array.isArray(payload)) {
+        results.push(...payload.slice(0, 2).map(item => ({ ...item, relatedSymbol: symbol })));
+      }
     } catch {
-      return [];
+      // 单个失败不影响其他
     }
-  }));
-  return companyNews.flat();
+  }
+  return results;
 }
 
 async function loadFinnhubMarketNews() {
