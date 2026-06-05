@@ -1,6 +1,6 @@
-import { noStoreJson } from "../lib/utils.js";
-import { buildSnapshot } from "./snapshot.js";
-import { buildNarrativeReport } from "../lib/narrative-engine.js";
+import { noStoreJson } from "./_lib/utils.js";
+import { buildSnapshot } from "./_lib/engines/snapshot-engine.js";
+import { buildNarrativeReport } from "./_lib/engines/narrative-engine.js";
 
 export default async function handler(req, res) {
   try {
@@ -11,11 +11,11 @@ export default async function handler(req, res) {
     noStoreJson(res, 200, report);
   } catch (error) {
     noStoreJson(res, 200, {
-      title: `AI美股日报｜${new Date().toLocaleDateString("zh-CN")}`,
+      title: `AI Market Daily Report | ${new Date().toISOString().slice(0, 10)}`,
       generatedAt: Date.now(),
       provider: "daily-report-error",
       status: "fallback",
-      summary: "日报引擎暂时无法获取可靠快照，请稍后刷新。",
+      summary: "Daily report engine could not obtain a reliable snapshot. Please refresh later.",
       error: error.message,
       sections: []
     });
