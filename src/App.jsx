@@ -214,15 +214,12 @@ export default function App() {
 
         <SourceHealthStrip snapshot={snapshot} />
 
-        <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.55fr)]">
-          <div className="min-w-0">
-            <MacroRadarBoard snapshot={snapshot} loading={loading} />
-          </div>
-          <div className="grid gap-6">
-            <RiskBiasMeter label="Risk Score" value={riskScore} tone={riskScore >= 58 ? "emerald" : riskScore <= 44 ? "rose" : "amber"} description="Macro environment filter derived from index, volatility, breadth, yield, and dollar pressure." />
-            <RiskBiasMeter label="Breadth" value={marketBreadth} tone={marketBreadth >= 58 ? "emerald" : marketBreadth <= 42 ? "rose" : "sky"} description="Market participation and sector confirmation layer." />
-            <RiskBiasMeter label="Confidence" value={tradeConfidenceScore} tone="sky" description="Data, signal, and trade-confidence aggregation." />
-          </div>
+        <MacroRadarBoard snapshot={snapshot} loading={loading} />
+
+        <section className="grid grid-cols-1 gap-6 md:grid-cols-3">
+          <RiskBiasMeter label="Risk Score" value={riskScore} tone={riskScore >= 58 ? "emerald" : riskScore <= 44 ? "rose" : "amber"} description="Macro environment filter derived from index, volatility, breadth, yield, and dollar pressure." />
+          <RiskBiasMeter label="Breadth" value={marketBreadth} tone={marketBreadth >= 58 ? "emerald" : marketBreadth <= 42 ? "rose" : "sky"} description="Market participation and sector confirmation layer." />
+          <RiskBiasMeter label="Confidence" value={tradeConfidenceScore} tone="sky" description="Data, signal, and trade-confidence aggregation." />
         </section>
 
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.55fr)]">
