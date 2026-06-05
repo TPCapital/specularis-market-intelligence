@@ -34,41 +34,23 @@
     "防御等待": "Defensive Wait",
     "PUT / 对冲观察": "PUT / Hedge Watch",
     "禁止交易": "No Trade",
-    "读取最新快照。": "Reading the latest snapshot.",
     "今日策略": "Today's Strategy",
-    "谨慎追高，等待回踩确认": "Avoid chasing; wait for pullback confirmation",
-    "指数与波动率信号尚待确认。": "Index and volatility signals are still pending confirmation.",
-    "相对成交量龙头 等待确认": "RVOL leader awaiting confirmation",
-    "最强板块 等待确认": "Strongest sector awaiting confirmation",
-    "风险偏好 等待确认": "Risk appetite awaiting confirmation",
-    "盘前动量 等待确认": "Pre-market momentum awaiting confirmation",
-    "开盘倾向 等待确认": "Opening bias awaiting confirmation",
     "市场指数": "Market Indices",
-    "等待同步": "Awaiting Sync",
     "市场概览": "Market Overview",
-    "读取指数快照。": "Reading index snapshot.",
     "市场结构 Pro": "Market Structure Pro",
     "风险指标": "Risk Indicators",
     "追高判断": "Chase-Risk Verdict",
     "中性偏谨慎": "Neutral to Cautious",
-    "Greed 未到极端，但科技拥挤度需要观察。": "Greed is not extreme yet, but tech crowding needs monitoring.",
     "盘前交易计划": "Pre-Market Trade Plan",
-    "观察模式": "Observation Mode",
-    "读取机会快照。": "Reading opportunity snapshot.",
-    "数据刷新后生成盘前交易计划。": "A pre-market trade plan will be generated after data refresh.",
     "强势股自动筛选": "Strong Stock Auto Scanner",
     "股票池逻辑": "Stock Pool Logic",
-    "按涨幅、相对强弱、成交活跃度、板块热度与催化可信度加权。": "Weighted by price change, relative strength, trading activity, sector heat, and catalyst credibility.",
     "今日机会榜": "Today's Opportunity Board",
     "盘前动能": "Pre-Market Momentum",
     "明星股池": "Star Stock Pool",
     "盘前异动榜": "Pre-Market Movers",
     "热钱板块": "Hot Money Sectors",
     "AI 盘面解读": "AI Tape Read",
-    "读取快照": "Reading Snapshot",
-    "正在读取热钱板块、异动扩散与期权方向。": "Reading hot-money sectors, mover breadth, and options direction.",
     "期权信号系统": "Options Signal System",
-    "免费版未接入真实期权大单流，本模块基于正股动量、相对成交量、板块强度、QQQ/SPY 方向、波动风险与新闻催化生成 CALL / PUT / WATCH / AVOID 代理信号。": "The free version does not connect to real institutional options flow. This module generates CALL / PUT / WATCH / AVOID proxy signals using underlying momentum, relative volume, sector strength, QQQ/SPY direction, volatility risk, and news catalysts.",
     "利好 / 利空新闻": "Bullish / Bearish News",
     "宏观快讯": "Macro Flash",
     "散户情绪 / WSB提及热度": "Retail Sentiment / WSB Mentions",
@@ -76,18 +58,19 @@
     "突发新闻流": "Breaking News Flow",
     "动量 / 异动雷达": "Momentum / Mover Radar",
     "美股收盘日报": "U.S. Market Daily Close",
-    "北京时间 08:00 复盘模板": "08:00 Beijing Time Review Template",
     "核心主题追踪": "Core Theme Tracking",
+    "等待同步": "Awaiting Sync",
+    "观察模式": "Observation Mode",
+    "读取快照": "Reading Snapshot",
+    "读取最新快照。": "Reading the latest snapshot.",
+    "读取指数快照。": "Reading index snapshot.",
+    "数据刷新后生成盘前交易计划。": "A pre-market trade plan will be generated after data refresh.",
+    "指数与波动率信号尚待确认。": "Index and volatility signals are still pending confirmation.",
+    "按涨幅、相对强弱、成交活跃度、板块热度与催化可信度加权。": "Weighted by price change, relative strength, trading activity, sector heat, and catalyst credibility.",
+    "正在读取热钱板块、异动扩散与期权方向。": "Reading hot-money sectors, mover breadth, and options direction.",
+    "免费版未接入真实期权大单流，本模块基于正股动量、相对成交量、板块强度、QQQ/SPY 方向、波动风险与新闻催化生成 CALL / PUT / WATCH / AVOID 代理信号。": "The free version does not connect to real institutional options flow. This module generates CALL / PUT / WATCH / AVOID proxy signals using underlying momentum, relative volume, sector strength, QQQ/SPY direction, volatility risk, and news catalysts.",
     "AI / 半导体 / 软件 / 电力 / 核能": "AI / Semiconductors / Software / Power / Nuclear",
-    "结构参考 · 非实时": "Structural reference · not real-time",
-    "快照数据（SNAPSHOT）": "Snapshot Data",
-    "最近快照": "Latest snapshot",
-    "最新快照": "Latest snapshot",
-    "最后成功": "Last successful",
-    "显示最近有效数据": "Showing last valid data",
-    "最近有效": "Last valid",
-    "备用快照": "Backup snapshot",
-    "实时 + 结构化情报": "Live + structured intelligence",
+    "北京时间 08:00 复盘模板": "08:00 Beijing Time Review Template",
     "高": "High",
     "中": "Medium",
     "低": "Low",
@@ -116,61 +99,149 @@
     "财报": "Earnings",
     "评级": "Analyst Rating",
     "政策": "Policy",
-    "等待盘前确认": "Awaiting pre-market confirmation",
     "暂无高置信度机会": "No high-confidence opportunity yet",
-    "当前指数数据可用性不足": "Insufficient index data availability",
-    "等待实时源恢复前，仅作辅助参考。": "Auxiliary reference only until live sources recover.",
-    "当前使用缓存快照维持观察，不生成强方向信号。": "Using cached snapshot for observation only; no strong directional signal generated.",
-    "风险：期权信号只作辅助，需等待开盘量价确认。": "Risk: options signals are auxiliary only; wait for opening price-volume confirmation."
+    "等待盘前确认": "Awaiting pre-market confirmation",
+    "当前指数数据可用性不足": "Insufficient index data availability"
   }));
 
-  const replacements = [
-    [/资金流基于\s*Live Data\s*/gi, "Flow basis: live data "],
-    [/资金流基于\s*Delayed Data\s*/gi, "Flow basis: delayed data "],
-    [/资金流基于\s*Proxy Inference\s*/gi, "Flow basis: proxy inference "],
-    [/资金流基于实时数据\s*/g, "Flow basis: live data "],
-    [/资金流基于延迟数据\s*/g, "Flow basis: delayed data "],
-    [/资金流基于代理推断数据\s*/g, "Flow basis: proxy inference "],
-    [/资金流基于最后成功数据\s*/g, "Flow basis: last successful data "],
-    [/资金流基于缓存快照/g, "Flow basis: cached snapshot"],
-    [/Data生成[：:]/g, "Data generated:"],
-    [/页面刷新[：:]/g, "Page refreshed:"],
-    [/数据生成[：:]/g, "Data generated:"],
-    [/数据可靠性[：:]/g, "Data reliability:"],
-    [/置信度\s*/g, "Confidence "],
-    [/Market宽度/g, "Market breadth"],
-    [/市场宽度/g, "Market breadth"],
-    [/Pre-Market动能/g, "Pre-market momentum"],
-    [/盘前动能/g, "Pre-market momentum"],
+  const rules = [
+    [/高置信度?opportunity/gi, "High-confidence opportunity"],
+    [/Low\s*质量opportunity\s*\(Low Quality\)/gi, "Low-quality opportunity"],
+    [/Low\s*质量opportunity/gi, "Low-quality opportunity"],
+    [/Medium置信/gi, "Medium confidence"],
+    [/High置信/gi, "High confidence"],
+    [/Low置信/gi, "Low confidence"],
+    [/置信度\s*HIGH/gi, "Confidence HIGH"],
+    [/置信度\s*MEDIUM/gi, "Confidence MEDIUM"],
+    [/置信度\s*LOW/gi, "Confidence LOW"],
+    [/Confidence\s*高/g, "Confidence HIGH"],
+    [/Confidence\s*中/g, "Confidence MEDIUM"],
+    [/Confidence\s*低/g, "Confidence LOW"],
+    [/Risk偏好\s*RISK AVOIDANCE\s*\(RISK-OFF\)/gi, "Risk bias: RISK AVOIDANCE (RISK-OFF)"],
+    [/盘前watch名单/g, "Pre-market watchlist"],
+    [/暂无可用watch名单/g, "No available watchlist"],
+    [/wait for live\/delayed quote 或涨跌幅触发/g, "wait for live/delayed quotes or price-change trigger"],
+    [/相对成交量龙头/g, "Relative volume leader"],
+    [/最强SECTOR/gi, "Strongest sector"],
+    [/开盘倾向/g, "Opening bias"],
+    [/仅早盘WATCH名单/g, "Early-session watchlist only"],
+    [/盘前价格mover与newscatalystsync出现/g, "Pre-market price move and news catalyst are aligned"],
+    [/价格mover进入盘前扫描/g, "Price mover entered the pre-market scanner"],
+    [/需成交量confirmation/g, "volume confirmation required"],
+    [/需volume confirmation/g, "volume confirmation required"],
+    [/需开盘confirmation/g, "opening confirmation required"],
+    [/需开盘量能confirmation/g, "opening volume confirmation required"],
+    [/需开盘量价confirmation/g, "opening price-volume confirmation required"],
+    [/持续性验证/g, "durability check"],
+    [/仅供参考/g, "reference only"],
+    [/快照data/g, "snapshot data"],
+    [/snapshotdata/g, "snapshot data"],
+    [/delayeddata/g, "delayed data"],
+    [/livedata/g, "live data"],
+    [/proxy推断/g, "proxy inference"],
+    [/proxy量能/g, "proxy volume"],
+    [/真实量能/g, "real volume"],
+    [/延迟价格/g, "delayed price"],
+    [/实时价格/g, "live price"],
+    [/结构性opportunity/g, "Structural opportunity"],
+    [/结构性/g, "Structural"],
+    [/热钱is concentrated in少数sector/g, "Hot money is concentrated in a few sectors"],
+    [/避免无差别chasing/g, "avoid indiscriminate chasing"],
+    [/避免无量chasing/g, "avoid chasing without volume"],
+    [/避免无量高开/g, "avoid low-volume gap-ups"],
+    [/不抢第一根/g, "do not take the first bar"],
+    [/不抢第一根K线/g, "do not take the first candle"],
+    [/wait for开盘15分钟confirmation方向/g, "wait for 15-minute opening confirmation"],
+    [/wait for开盘延续confirmation/g, "wait for opening continuation confirmation"],
+    [/wait for开盘延续/g, "wait for opening continuation"],
+    [/wait for开盘/g, "wait for the open"],
+    [/for开盘/g, "for the open"],
+    [/开盘15分钟confirmation方向/g, "15-minute opening confirmation"],
+    [/开盘量价Confirmation/gi, "opening price-volume confirmation"],
+    [/开盘量价confirmation/gi, "opening price-volume confirmation"],
+    [/开盘量能confirmation/gi, "opening volume confirmation"],
+    [/开盘区间Low点/g, "opening-range low"],
+    [/跌破开盘区间Low点/g, "breaks the opening-range low"],
+    [/QQQ\/SPY\s*sync走弱/g, "QQQ/SPY weakens in sync"],
+    [/VIX\s*不回落/g, "VIX does not pull back"],
+    [/VIX\s*快速上行时避免CALL/g, "avoid CALLs when VIX spikes"],
+    [/快速上行时避免CALL/g, "avoid CALLs during a fast volatility spike"],
+    [/与sector背离的signal全部放弃/g, "abandon signals that diverge from sector direction"],
+    [/跌回VWAP/g, "fails back below VWAP"],
+    [/连续亏损后停止加仓/g, "stop adding after consecutive losses"],
+    [/避免sentiment翻倍/g, "avoid sentiment-driven overextension"],
+    [/翻倍/g, "overextension"],
+    [/财报预期改善/g, "earnings expectations improved"],
+    [/关注开盘confirmation/g, "watch opening confirmation"],
+    [/财报预期偏弱/g, "earnings expectations are weak"],
+    [/注意波动risk/g, "watch volatility risk"],
+    [/AI semiconductors动量结构延续/g, "AI semiconductor momentum structure continues"],
+    [/AI semiconductors动量/g, "AI semiconductor momentum"],
+    [/存在themeheat/g, "theme heat exists"],
+    [/但trade质量仍需开盘confirmation/g, "but trade quality still requires opening confirmation"],
+    [/缺少明确动量\/量能或catalyst共振/g, "lacks clear momentum, volume, or catalyst alignment"],
+    [/相对成交量扩张/g, "relative volume expansion"],
+    [/资金预期改善/g, "fund-flow expectations improved"],
+    [/高成长主题/g, "high-growth theme"],
+    [/偏弱/g, "weaker"],
+    [/弹性强/g, "high beta"],
+    [/回落/g, "pullback"],
+    [/未进入极端亢奋/g, "not in extreme euphoria"],
+    [/尚未触及典型超买阈值/g, "not yet at a typical overbought threshold"],
+    [/保护性需求偏low/g, "protective demand is low"],
+    [/追涨拥挤度上升/g, "chasing crowding is rising"],
+    [/贪婪区间/g, "greed zone"],
+    [/动能偏强/g, "momentum is firm"],
+    [/Market宽度/g, "market breadth"],
+    [/market breadth/g, "market breadth"],
+    [/Pre-Market动能/g, "pre-market momentum"],
+    [/盘前动能/g, "pre-market momentum"],
     [/动能股/g, "momentum stocks"],
     [/集中在/g, "is concentrated in"],
     [/优先等待/g, "prefer waiting for"],
-    [/等待开盘量价Confirmation/g, "wait for opening price-volume confirmation"],
-    [/开盘量价确认/g, "opening price-volume confirmation"],
+    [/等待开盘量价/g, "wait for opening price-volume"],
     [/开盘量价/g, "opening price-volume"],
-    [/防御等待/g, "Defensive Wait"],
+    [/开盘量能/g, "opening volume"],
+    [/开盘/g, "opening"],
+    [/盘前/g, "pre-market"],
+    [/盘中/g, "intraday"],
+    [/收盘/g, "close"],
+    [/明日/g, "next session"],
+    [/北京时间/g, "Beijing Time"],
+    [/数据生成/g, "data generated"],
+    [/页面刷新/g, "page refreshed"],
+    [/自动刷新/g, "auto refresh"],
+    [/数据可靠性/g, "data reliability"],
+    [/资金流基于/g, "flow basis:"],
+    [/资金流/g, "flow"],
+    [/置信/g, "confidence"],
     [/风险规避/g, "Risk Avoidance"],
     [/风险升温/g, "Risk Heating Up"],
+    [/防御等待/g, "Defensive Wait"],
     [/对冲观察/g, "Hedge Watch"],
     [/禁止交易/g, "No Trade"],
     [/无交易/g, "No Trade"],
     [/不交易/g, "No Trade"],
-    [/不追/g, "Do not chase"],
+    [/观察/g, "Watch"],
+    [/等待同步/g, "Awaiting Sync"],
+    [/等待确认/g, "Awaiting Confirmation"],
+    [/等待/g, "wait"],
+    [/确认/g, "confirmation"],
+    [/方向/g, "direction"],
+    [/不追/g, "do not chase"],
     [/无量高开/g, "low-volume gap-up"],
     [/追高/g, "chasing"],
     [/回踩/g, "pullback"],
-    [/确认/g, "confirmation"],
-    [/等待/g, "wait for"],
-    [/优先/g, "prefer"],
-    [/风控/g, "risk control"],
+    [/可进攻但控仓/g, "Can attack, but control size"],
+    [/可进攻/g, "Can attack"],
+    [/控仓/g, "control size"],
+    [/风险偏好/g, "risk appetite"],
     [/风险/g, "risk"],
     [/规避/g, "avoidance"],
     [/升温/g, "heating up"],
     [/防御/g, "defensive"],
-    [/观望/g, "watch"],
-    [/观察/g, "watch"],
-    [/可交易/g, "tradable"],
-    [/交易/g, "trade"],
+    [/市场概览/g, "market overview"],
+    [/市场结构/g, "market structure"],
     [/市场/g, "market"],
     [/板块/g, "sector"],
     [/主线/g, "main theme"],
@@ -182,6 +253,7 @@
     [/美元/g, "dollar"],
     [/黄金/g, "gold"],
     [/宽度/g, "breadth"],
+    [/动量/g, "momentum"],
     [/动能/g, "momentum"],
     [/异动/g, "mover"],
     [/热度/g, "heat"],
@@ -196,9 +268,6 @@
     [/偏乐观/g, "moderately optimistic"],
     [/乐观/g, "optimistic"],
     [/悲观/g, "pessimistic"],
-    [/高/g, "high"],
-    [/中/g, "medium"],
-    [/低/g, "low"],
     [/读取/g, "reading"],
     [/同步/g, "sync"],
     [/快照/g, "snapshot"],
@@ -228,28 +297,80 @@
     [/软件/g, "software"],
     [/电力/g, "power"],
     [/核能/g, "nuclear"],
+    [/通信/g, "communications"],
+    [/医疗/g, "healthcare"],
+    [/金融/g, "financials"],
+    [/云安全/g, "cloud security"],
+    [/网络安全/g, "cybersecurity"],
+    [/大型科技/g, "mega-cap tech"],
+    [/加密资产/g, "crypto assets"],
+    [/价格/g, "price"],
+    [/成交量/g, "volume"],
+    [/涨跌幅/g, "price change"],
+    [/股票/g, "stock"],
+    [/名单/g, "list"],
+    [/暂无/g, "none"],
+    [/可用/g, "available"],
+    [/触发/g, "trigger"],
+    [/或/g, "or"],
+    [/与/g, "and"],
+    [/的/g, ""],
     [/年/g, "-"],
     [/月/g, "-"],
     [/日/g, ""],
     [/，/g, ", "],
     [/。/g, "."],
     [/、/g, " / "],
-    [/：/g, ": "]
+    [/：/g, ": "],
+    [/（/g, " ("],
+    [/）/g, ") "]
   ];
 
   const cleanup = [
     [/\s{2,}/g, " "],
     [/\s+([,.:;])/g, "$1"],
-    [/([|/])\s+/g, "$1 "],
-    [/\s+([|/])/g, " $1"],
-    [/Data reliability:\s*HIGH/g, "Data reliability: HIGH"],
-    [/Confidence\s*HIGH/gi, "Confidence HIGH"],
-    [/Confidence\s*MEDIUM/gi, "Confidence MEDIUM"],
-    [/Confidence\s*LOW/gi, "Confidence LOW"],
-    [/Live Data/gi, "live data"],
-    [/Data/g, "data"],
-    [/Pre-Market/g, "Pre-market"],
-    [/Market breadth/g, "market breadth"],
+    [/([(|/])\s+/g, "$1"],
+    [/\s+([)|/])/g, "$1"],
+    [/data generated\s*:/gi, "data generated: "],
+    [/page refreshed\s*:/gi, "page refreshed: "],
+    [/auto refreshed/gi, "auto refresh"],
+    [/flow basis:\s*live data/gi, "Flow basis: live data"],
+    [/flow basis:\s*delayed data/gi, "Flow basis: delayed data"],
+    [/flow basis:\s*proxy/gi, "Flow basis: proxy"],
+    [/data reliability\s*:\s*HIGH/gi, "data reliability: HIGH"],
+    [/confidence\s*HIGH/gi, "Confidence HIGH"],
+    [/confidence\s*MEDIUM/gi, "Confidence MEDIUM"],
+    [/confidence\s*LOW/gi, "Confidence LOW"],
+    [/High\s*confidence\s*opportunity/gi, "High-confidence opportunity"],
+    [/Low\s*quality\s*opportunity/gi, "Low-quality opportunity"],
+    [/pre-market\s+momentumis/gi, "pre-market momentum is"],
+    [/mover与news/gi, "move and news"],
+    [/catalystsync/gi, "catalyst alignment"],
+    [/newscatalyst/gi, "news catalyst"],
+    [/sector轮动/gi, "sector rotation"],
+    [/yield曲线/gi, "yield curve"],
+    [/原油\s*\/\s*通胀/gi, "oil / inflation"],
+    [/market真实均线参与率/gi, "real market MA participation"],
+    [/免/gi, "Free"],
+    [/未接入/g, "not connected"],
+    [/当前基于/g, "currently based on"],
+    [/曲线/g, "curve"],
+    [/轮动/g, "rotation"],
+    [/分化/g, "divergence"],
+    [/需wait/g, "needs to wait"],
+    [/foropening/g, "for opening"],
+    [/prefer waiting foropening/gi, "prefer waiting for opening"],
+    [/openingconfirmation/gi, "opening confirmation"],
+    [/confirmationconfirmation/gi, "confirmation"],
+    [/watch名单/gi, "watchlist"],
+    [/watchlist名单/gi, "watchlist"],
+    [/量能/g, "volume"],
+    [/分钟/g, "min"],
+    [/分钟/g, "min"],
+    [/个/g, ""],
+    [/只/g, ""],
+    [/↑/g, "up"],
+    [/↓/g, "down"],
     [/\bhigh\b/g, "High"],
     [/\bmedium\b/g, "Medium"],
     [/\blow\b/g, "Low"]
@@ -282,42 +403,61 @@
         box-shadow: 0 0 22px rgba(56, 189, 248, .28), inset 0 0 16px rgba(56, 189, 248, .1);
       }
       html[data-lang="en"] .topbar {
-        grid-template-columns: minmax(0, 1fr) auto;
+        display: grid;
+        grid-template-columns: minmax(420px, 760px) minmax(460px, 1fr);
         align-items: end;
         gap: 18px;
+        margin-bottom: 22px;
       }
       html[data-lang="en"] h1 {
-        max-width: 1180px;
-        font-size: clamp(34px, 3.05vw, 54px);
+        max-width: 760px;
+        font-size: clamp(30px, 3vw, 48px);
         line-height: .96;
         letter-spacing: -.045em;
       }
+      html[data-lang="en"] .eyebrow { margin-bottom: 6px; }
       html[data-lang="en"] .meta {
-        flex-wrap: wrap;
         justify-content: flex-end;
+        flex-wrap: wrap;
         row-gap: 8px;
-        max-width: 820px;
+        white-space: normal;
+        line-height: 1.2;
+        max-width: 760px;
+        margin-left: auto;
       }
-      html[data-lang="en"] .workspace-nav { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-      html[data-lang="en"] .workspace-tab { min-height: 72px; padding: 14px 16px; }
+      html[data-lang="en"] .meta > span,
+      html[data-lang="en"] .meta > time {
+        display: inline-flex;
+        align-items: center;
+        min-height: 28px;
+      }
+      html[data-lang="en"] .workspace-nav { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+      html[data-lang="en"] .workspace-tab { min-height: 70px; padding: 13px 14px; }
       html[data-lang="en"] .workspace-tab strong {
-        font-size: clamp(12px, .92vw, 15px);
-        line-height: 1.05;
-        letter-spacing: .02em;
+        font-size: clamp(12px, .88vw, 14px);
+        line-height: 1.08;
+        letter-spacing: .01em;
       }
-      html[data-lang="en"] .workspace-tab em { font-size: 10px; letter-spacing: .16em; }
+      html[data-lang="en"] .workspace-tab em { font-size: 10px; letter-spacing: .15em; }
+      html[data-lang="en"] .command-deck { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+      html[data-lang="en"] .command-tile { min-height: 132px; padding: 20px; }
       html[data-lang="en"] .command-tile p,
       html[data-lang="en"] .panel-label,
-      html[data-lang="en"] .section-title h2 { letter-spacing: .03em; }
-      html[data-lang="en"] .command-tile strong { font-size: clamp(22px, 2vw, 38px); line-height: 1.02; }
-      html[data-lang="en"] .risk-mode { font-size: clamp(42px, 5.3vw, 86px); line-height: .92; }
-      html[data-lang="en"] .strategy-panel h2 { font-size: clamp(34px, 3.2vw, 60px); line-height: .98; }
+      html[data-lang="en"] .section-title h2 { letter-spacing: .035em; }
+      html[data-lang="en"] .command-tile strong { font-size: clamp(20px, 1.7vw, 32px); line-height: 1.04; }
+      html[data-lang="en"] .risk-mode { font-size: clamp(38px, 4.6vw, 78px); line-height: .92; }
+      html[data-lang="en"] .risk-score { font-size: clamp(52px, 6vw, 98px); }
+      html[data-lang="en"] .strategy-panel h2 { font-size: clamp(28px, 2.7vw, 50px); line-height: 1.02; }
       html[data-lang="en"] .strategy-panel p,
       html[data-lang="en"] .conclusion { line-height: 1.45; }
+      html[data-lang="en"] .metric-card h3,
+      html[data-lang="en"] .tape-card h3,
+      html[data-lang="en"] .market-summary-card h3 { line-height: 1.15; }
       @media (max-width: 1180px) {
         html[data-lang="en"] .topbar { grid-template-columns: 1fr; }
-        html[data-lang="en"] .meta { justify-content: flex-start; max-width: none; }
+        html[data-lang="en"] .meta { justify-content: flex-start; max-width: none; margin-left: 0; }
         html[data-lang="en"] .workspace-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        html[data-lang="en"] .command-deck { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       }
     `;
     document.head.appendChild(style);
@@ -335,9 +475,11 @@
     if (!trimmed || !CJK_RE.test(trimmed)) return original;
     if (exact.has(trimmed)) return preserveSpacing(original, exact.get(trimmed));
     let next = original;
-    for (const [pattern, replacement] of replacements) next = next.replace(pattern, replacement);
+    for (const [pattern, replacement] of rules) next = next.replace(pattern, replacement);
     for (const [pattern, replacement] of cleanup) next = next.replace(pattern, replacement);
-    return next;
+    next = next.replace(/[\u3400-\u9fff]+/g, "");
+    for (const [pattern, replacement] of cleanup) next = next.replace(pattern, replacement);
+    return preserveSpacing(original, next.trim());
   }
 
   function getTextNodes(root = document.body) {
@@ -360,9 +502,7 @@
       originals.set(node, current);
       return;
     }
-    if (CJK_RE.test(current) && current !== translateText(saved)) {
-      originals.set(node, current);
-    }
+    if (CJK_RE.test(current) && current !== translateText(saved)) originals.set(node, current);
   }
 
   function applyLanguage() {
@@ -411,9 +551,7 @@
       observer = new MutationObserver((records) => {
         if (applying) return;
         for (const record of records) {
-          if (record.type === "characterData" && record.target?.nodeValue && CJK_RE.test(record.target.nodeValue)) {
-            originals.set(record.target, record.target.nodeValue);
-          }
+          if (record.type === "characterData" && record.target?.nodeValue && CJK_RE.test(record.target.nodeValue)) originals.set(record.target, record.target.nodeValue);
         }
         bindToggle();
         scheduleApply();
@@ -424,6 +562,7 @@
     setTimeout(scheduleApply, 80);
     setTimeout(scheduleApply, 300);
     setTimeout(scheduleApply, 900);
+    setTimeout(scheduleApply, 1800);
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
