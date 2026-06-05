@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { RefreshCcw } from "lucide-react";
-import MacroRadarBoard from "./components/MacroRadarBoard.jsx";
-import RiskBiasMeter from "./components/RiskBiasMeter.jsx";
-import TradingMatrix from "./components/TradingMatrix.jsx";
-import OptionsSystem from "./components/OptionsSystem.jsx";
+import MacroRadarBoard from "./components/MacroRadarBoard";
+import RiskBiasMeter from "./components/RiskBiasMeter";
+import TradingMatrix from "./components/TradingMatrix";
+import OptionsSystem from "./components/OptionsSystem";
 
 const SNAPSHOT_ENDPOINT = "/api/snapshot-cached";
 const REFRESH_MS = 60_000;
@@ -203,22 +203,20 @@ export default function App() {
   return (
     <main className="min-h-screen bg-[#030712] text-slate-100">
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.14),transparent_30%),radial-gradient(circle_at_top_right,rgba(16,185,129,0.10),transparent_30%)]" />
-      <div className="relative mx-auto max-w-[1500px] px-4 py-6 md:px-8 md:py-10">
+      <div className="relative mx-auto max-w-7xl p-6 space-y-6 md:p-8">
         <Header snapshot={snapshot} loading={loading} onRefresh={() => loadSnapshot()} />
 
         {error ? (
-          <div className="mt-6 rounded-2xl border border-rose-300/20 bg-rose-400/10 p-4 text-sm font-semibold text-rose-100">
+          <div className="rounded-2xl border border-rose-300/20 bg-rose-400/10 p-4 text-sm font-semibold text-rose-100">
             {error}. Showing the last client state if available.
           </div>
         ) : null}
 
-        <div className="mt-6">
-          <SourceHealthStrip snapshot={snapshot} />
-        </div>
+        <SourceHealthStrip snapshot={snapshot} />
 
-        <section className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-3">
-          <div className="md:col-span-2">
-            <MacroRadarBoard snapshot={snapshot} states={macroStates} activeState={activeState} />
+        <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.55fr)]">
+          <div className="min-w-0">
+            <MacroRadarBoard snapshot={snapshot} loading={loading} />
           </div>
           <div className="grid gap-6">
             <RiskBiasMeter label="Risk Score" value={riskScore} tone={riskScore >= 58 ? "emerald" : riskScore <= 44 ? "rose" : "amber"} description="Macro environment filter derived from index, volatility, breadth, yield, and dollar pressure." />
@@ -227,14 +225,14 @@ export default function App() {
           </div>
         </section>
 
-        <section className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-3">
-          <div className="xl:col-span-2">
-            <TradingMatrix snapshot={snapshot} />
+        <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.55fr)]">
+          <div className="min-w-0">
+            <TradingMatrix snapshot={snapshot} loading={loading} />
           </div>
           <DecisionSignalBoard snapshot={snapshot} />
         </section>
 
-        <section className="mt-6">
+        <section>
           <OptionsSystem snapshot={snapshot} />
         </section>
       </div>
