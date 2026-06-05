@@ -196,6 +196,7 @@ export default function App() {
 
   const macroStates = useMemo(() => deriveMacroStates(snapshot), [snapshot]);
   const activeState = useMemo(() => chooseActiveState(snapshot), [snapshot]);
+  const viewSnapshot = snapshot || {};
   const riskScore = Number(snapshot?.summary?.riskScore ?? snapshot?.riskRegime?.score ?? snapshot?.risk?.score ?? 50);
   const marketBreadth = Number(snapshot?.breadth?.breadthScore ?? snapshot?.marketStructurePro?.breadthPro?.score ?? 50);
   const tradeConfidenceScore = Number(snapshot?.confidenceScore?.score ?? 0);
@@ -204,7 +205,7 @@ export default function App() {
     <main className="min-h-screen bg-[#030712] text-slate-100">
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.14),transparent_30%),radial-gradient(circle_at_top_right,rgba(16,185,129,0.10),transparent_30%)]" />
       <div className="relative mx-auto max-w-7xl p-6 space-y-6 md:p-8">
-        <Header snapshot={snapshot} loading={loading} onRefresh={() => loadSnapshot()} />
+        <Header snapshot={viewSnapshot} loading={loading} onRefresh={() => loadSnapshot()} />
 
         {error ? (
           <div className="rounded-2xl border border-rose-300/20 bg-rose-400/10 p-4 text-sm font-semibold text-rose-100">
@@ -212,9 +213,9 @@ export default function App() {
           </div>
         ) : null}
 
-        <SourceHealthStrip snapshot={snapshot} />
+        <SourceHealthStrip snapshot={viewSnapshot} />
 
-        <MacroRadarBoard snapshot={snapshot} loading={loading} />
+        <MacroRadarBoard snapshot={viewSnapshot} loading={loading} />
 
         <section className="grid grid-cols-1 gap-6 md:grid-cols-3">
           <RiskBiasMeter label="Risk Score" value={riskScore} tone={riskScore >= 58 ? "emerald" : riskScore <= 44 ? "rose" : "amber"} description="Macro environment filter derived from index, volatility, breadth, yield, and dollar pressure." />
@@ -224,13 +225,13 @@ export default function App() {
 
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.55fr)]">
           <div className="min-w-0">
-            <TradingMatrix snapshot={snapshot} loading={loading} />
+            <TradingMatrix snapshot={viewSnapshot} loading={loading} />
           </div>
-          <DecisionSignalBoard snapshot={snapshot} />
+          <DecisionSignalBoard snapshot={viewSnapshot} />
         </section>
 
         <section>
-          <OptionsSystem snapshot={snapshot} />
+          <OptionsSystem snapshot={viewSnapshot} />
         </section>
       </div>
     </main>
