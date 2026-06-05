@@ -1,5 +1,5 @@
 import React from "react";
-import { ArrowDownRight, ArrowUpRight, ShieldAlert, Sliders, TrendingUp, Radio } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, ShieldAlert, Sliders, Radio } from "lucide-react";
 
 function cn(...classes) {
   return classes.filter(Boolean).join(" ");
@@ -24,10 +24,10 @@ function getTone(value, type = "default") {
   const isNegative = /(BEAR|RISK_OFF|RISK-OFF|HEDGE|DEFENSIVE|NEGATIVE|ERROR)/.test(text) || (type === "num" && Number(value) < 0);
   const isWarning = /(ALERT|RISK|MISS|UNAVAILABLE|STALE|FALLBACK)/.test(text);
 
-  if (isPositive) return { text: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20", raw: "emerald" };
-  if (isNegative) return { text: "text-rose-400", bg: "bg-rose-500/10 border-rose-500/20", raw: "rose" };
-  if (isWarning) return { text: "text-amber-400", bg: "bg-amber-500/10 border-amber-500/20", raw: "amber" };
-  return { text: "text-slate-400", bg: "bg-slate-900/50 border-slate-800", raw: "slate" };
+  if (isPositive) return { text: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20" };
+  if (isNegative) return { text: "text-rose-400", bg: "bg-rose-500/10 border-rose-500/20" };
+  if (isWarning) return { text: "text-amber-400", bg: "bg-amber-500/10 border-amber-500/20" };
+  return { text: "text-slate-400", bg: "bg-slate-900/50 border-slate-800" };
 }
 
 function normalizeMacroRows(snapshot = {}) {
@@ -77,7 +77,7 @@ export default function MacroRadarBoard({
   return (
     <section className={cn("rounded-[2rem] border border-slate-900 bg-slate-950/20 p-8 backdrop-blur-xl md:p-10 space-y-10 shadow-[0_30px_100px_rgba(0,0,0,0.6)]", className)}>
       
-      {/* 1. 顶部开放式叙事主标题 */}
+      {/* 1. Open Editorial Header Narrative */}
       <div className="space-y-4">
         <div className="flex items-center gap-3">
           <span className="flex h-2 w-2 items-center justify-center rounded-full bg-sky-500 shadow-[0_0_12px_rgba(14,165,233,0.8)] animate-pulse" />
@@ -95,16 +95,16 @@ export default function MacroRadarBoard({
         </div>
       </div>
 
-      {/* 2. 核心大局观简报 (彻底放弃卡片外壳，改用大段落精英新闻流排版) */}
+      {/* 2. Intelligence Executive Report Presentation */}
       <div className="border-l-2 border-slate-800 pl-6 md:pl-8 space-y-3">
         <p className="text-lg leading-relaxed text-slate-300 font-light">
-          当前市场正式确立为 <span className="font-semibold text-slate-50 tracking-wide underline decoration-slate-700 decoration-2 underline-offset-4">{regimeType}</span> 环境，
-          核心宏观过滤器提示 <span className={cn("font-semibold tracking-wide", getTone(riskMode).text)}>{riskMode}</span> 策略导向。
-          {narrativeSummary || "全网宏观流动性信号处于稳定期，当前无结构性断裂风险，交易微观执行可保持既定频次。"}
+          Current market posture is formally diagnosed as a <span className="font-semibold text-slate-50 tracking-wide underline decoration-slate-700 decoration-2 underline-offset-4">{regimeType}</span> environment, 
+          where the core macro intelligence layer enforces a <span className={cn("font-semibold tracking-wide", getTone(riskMode).text)}>{riskMode}</span> operational bias. 
+          {narrativeSummary || "Macro liquidity structures remain uncompromised. Micro execution systems should proceed according to systematic baseline frequency guidelines."}
         </p>
       </div>
 
-      {/* 3. 极简数字化成交流 (横向贯通，取消所有小方块卡片边框) */}
+      {/* 3. Borderless Bloomberg-Style Metric Ticker Block */}
       <div className="grid grid-cols-2 gap-y-6 gap-x-12 pt-6 border-y border-slate-900/60 md:grid-cols-4">
         {[
           { item: spy, label: "SPY Delta", isVix: false },
@@ -135,17 +135,17 @@ export default function MacroRadarBoard({
         })}
       </div>
 
-      {/* 4. 双翼叙事衍生流：左侧深度逻辑，右侧政治/催化剂网络 */}
+      {/* 4. Split Asymmetric Mechanics & Signals Layer */}
       <div className="grid gap-12 lg:grid-cols-[1.35fr_0.65fr] pt-4">
         
-        {/* 左翼：连续型文本叙事 */}
+        {/* Left Column: Structural Text Streams */}
         <div className="space-y-8">
           <div className="space-y-2">
             <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400 flex items-center gap-2">
               <Sliders className="h-3.5 w-3.5 text-slate-500" /> Structural Mechanics
             </h3>
             <p className="text-sm leading-7 font-light text-slate-400">
-              {resolvedRegime.explanation || "大盘指数结构当前运行于关键均线线上，但整体广度（Breadth）以及行业领头羊的洗牌动态，仍旧是绝对控制实际执行成色与仓位容错率的核心。"}
+              {resolvedRegime.explanation || "Index architecture remains structurally intact above key moving variables, but underlying participation trends and factor rotation dictate the true velocity and margin of safety for execution."}
             </p>
           </div>
 
@@ -154,8 +154,8 @@ export default function MacroRadarBoard({
               <ShieldAlert className="h-3.5 w-3.5 text-slate-500" /> Currency & Intermarket Pressure
             </h4>
             <p className="text-sm leading-7 font-light text-slate-400">
-              美元指数 (DXY) 当前录得 <span className={cn("font-mono font-normal", getTone(dxy?.change, "num").text)}>{formatNumber(dxy?.change)}%</span> 的变动。
-              在跨市场传导机制中，强美元会机械性压制高 Beta 资产及长存续期风险敞口的估值上限，需严密防范流动性抽离。
+              The Dollar Index (DXY) prints a change rate of <span className={cn("font-mono font-normal", getTone(dxy?.change, "num").text)}>{formatNumber(dxy?.change)}%</span>. 
+              In asset allocation mechanics, persistent dollar acceleration acts as a systemic drag on high-beta long-duration equity positions.
             </p>
           </div>
           
@@ -176,10 +176,10 @@ export default function MacroRadarBoard({
           </div>
         </div>
 
-        {/* 右翼：完全无边界流动的外部政策与信号原子线 */}
+        {/* Right Column: Open Borderless Tensors */}
         <div className="space-y-8 lg:border-l lg:border-slate-900 lg:pl-10">
           
-          {/* 政治倾斜向量 */}
+          {/* Political Shifts */}
           <div className="space-y-4">
             <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Political Shifts</h3>
             <div className="space-y-3">
@@ -195,7 +195,7 @@ export default function MacroRadarBoard({
             </div>
           </div>
 
-          {/* 敏感标的监测 */}
+          {/* Sensitive Nodes */}
           <div className="space-y-3">
             <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Sensitive Nodes</h3>
             <div className="flex flex-wrap gap-1.5">
@@ -207,13 +207,12 @@ export default function MacroRadarBoard({
             </div>
           </div>
 
-          {/* 外部宏观情报流 */}
+          {/* Macro Signals Terminal */}
           <div className="space-y-4">
             <h3 className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Macro Signals</h3>
             <div className="space-y-4">
-              {(macroFeed.length ? macroFeed.slice(0, 2) : [{ title: "Global Macro Monitor", summary: "External feeds are fully operational and verified.", bias: "neutral" }]).map((item, index) => (
+              {(macroFeed.length ? macroFeed.slice(0, 2) : [{ title: "Global Macro Monitor", summary: "External data links are healthy and streaming.", bias: "neutral" }]).map((item, index) => (
                 <div key={`${item.title}-${index}`} className="group relative pl-3 space-y-1">
-                  {/* 左侧流动指示短线 */}
                   <div className={cn("absolute left-0 top-1 bottom-1 w-[1px]", getTone(item.tone || item.bias).text.replace("text-", "bg-"))} />
                   <div className="text-xs font-normal text-slate-300 group-hover:text-slate-100 transition-colors">
                     {item.title || item.source || "Feed Update"}
