@@ -1,17 +1,17 @@
-import { cleanSymbols, fetchJson, noStoreJson } from "../lib/utils.js";
-import { buildMarketBreadth } from "../lib/market-breadth.js";
-import { runPremarketScanner } from "../lib/premarket-scanner.js";
-import { buildSignalEngine } from "../lib/signal-engine.js";
-import { buildEarningsLayer } from "../lib/earnings.js";
-import { buildInsiderLayer } from "../lib/insider.js";
-import { buildRelativeVolumeLayer } from "../lib/relative-volume.js";
-import { buildConfidenceScore } from "../lib/confidence-score.js";
-import { buildMarketRegime } from "../lib/market-regime.js";
-import { buildStrategySummary } from "../lib/strategy-engine.js";
-import { buildTradePlan } from "../lib/trade-plan.js";
-import { buildWatchlist } from "../lib/watchlist-engine.js";
-import { buildMarketStructurePro } from "../lib/market-structure-pro.js";
-import { buildTradeDecision } from "../lib/trade-decision-engine.js";
+import { cleanSymbols, fetchJson, noStoreJson } from "./_lib/engines/utils.js";
+import { buildMarketBreadth } from "./_lib/engines/market-breadth.js";
+import { runPremarketScanner } from "./_lib/engines/premarket-scanner.js";
+import { buildSignalEngine } from "./_lib/engines/signal-engine.js";
+import { buildEarningsLayer } from "./_lib/engines/earnings.js";
+import { buildInsiderLayer } from "./_lib/engines/insider.js";
+import { buildRelativeVolumeLayer } from "./_lib/engines/relative-volume.js";
+import { buildConfidenceScore } from "./_lib/engines/confidence-score.js";
+import { buildMarketRegime } from "./_lib/engines/market-regime.js";
+import { buildStrategySummary } from "./_lib/engines/strategy-engine.js";
+import { buildTradePlan } from "./_lib/engines/trade-plan.js";
+import { buildWatchlist } from "./_lib/engines/watchlist-engine.js";
+import { buildMarketStructurePro } from "./_lib/engines/market-structure-pro.js";
+import { buildTradeDecision } from "./_lib/engines/trade-decision-engine.js";
 
 const MARKET_SYMBOLS = {
   SPY: "SPY",

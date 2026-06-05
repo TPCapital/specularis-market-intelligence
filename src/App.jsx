@@ -218,7 +218,7 @@ export default function App() {
 
         <section className="mt-6 grid grid-cols-1 gap-6 md:grid-cols-3">
           <div className="md:col-span-2">
-            <MacroRadarBoard states={macroStates} activeState={activeState} />
+            <MacroRadarBoard snapshot={snapshot} states={macroStates} activeState={activeState} />
           </div>
           <div className="grid gap-6">
             <RiskBiasMeter label="Risk Score" value={riskScore} tone={riskScore >= 58 ? "emerald" : riskScore <= 44 ? "rose" : "amber"} description="Macro environment filter derived from index, volatility, breadth, yield, and dollar pressure." />

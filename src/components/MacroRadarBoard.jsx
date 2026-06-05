@@ -1,190 +1,243 @@
-import React, { useMemo, useState } from "react";
-import { Activity, Gauge, LineChart, ShieldAlert, TrendingUp } from "lucide-react";
+import React from "react";
+import { Activity, CircleDot, Globe2, RadioTower } from "lucide-react";
+
+const surfaceClass =
+  "bg-slate-950/40 backdrop-blur-md border border-slate-900/80 rounded-xl p-6 transition-all duration-300 hover:border-slate-800/80";
+
+const labelClass = "text-[10px] font-medium tracking-widest text-slate-500 uppercase";
+const metricClass = "font-mono tracking-tight font-light";
 
 function cn(...classes) {
   return classes.filter(Boolean).join(" ");
 }
 
-function Card({ children, className = "" }) {
+function asArray(value) {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.data)) return value.data;
+  if (Array.isArray(value?.items)) return value.items;
+  return [];
+}
+
+function formatNumber(value, fallback = "N/A") {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return number.toFixed(Math.abs(number) >= 10 ? 1 : 2);
+}
+
+function toneClass(value = "") {
+  const text = String(value).toUpperCase();
+  if (/(BULL|RISK_ON|RISK-ON|TREND|SQUEEZE|LIVE|CACHED|HIT|POSITIVE)/.test(text)) return "text-teal-400";
+  if (/(BEAR|RISK_OFF|RISK-OFF|HEDGE|DEFENSIVE|NEGATIVE|ERROR)/.test(text)) return "text-rose-400";
+  if (/(ALERT|RISK|MISS|UNAVAILABLE|STALE|FALLBACK)/.test(text)) return "text-amber-400";
+  return "text-slate-400";
+}
+
+function badgeClass(value = "") {
+  const text = String(value).toUpperCase();
+  if (/(BULL|RISK_ON|RISK-ON|TREND|SQUEEZE|LIVE|CACHED|HIT|POSITIVE)/.test(text)) {
+    return "bg-teal-500/10 text-teal-400 border-teal-500/20";
+  }
+  if (/(BEAR|RISK_OFF|RISK-OFF|HEDGE|DEFENSIVE|NEGATIVE|ERROR)/.test(text)) {
+    return "bg-rose-500/10 text-rose-400 border-rose-500/20";
+  }
+  if (/(ALERT|RISK|MISS|UNAVAILABLE|STALE|FALLBACK)/.test(text)) {
+    return "bg-amber-500/10 text-amber-400 border-amber-500/20";
+  }
+  return "bg-slate-900/50 text-slate-400 border-slate-800";
+}
+
+function Dot({ tone = "neutral" }) {
+  const color = toneClass(tone).replace("text-", "bg-");
+  return <span className={cn("h-1.5 w-1.5 rounded-full", color)} />;
+}
+
+function Pill({ children, tone = "neutral" }) {
   return (
-    <section
-      className={cn(
-        "rounded-[1.6rem] border border-slate-800/90 bg-slate-950/40 p-5 shadow-[0_24px_90px_rgba(0,0,0,0.34)] backdrop-blur-md",
-        className,
-      )}
-    >
+    <span className={cn("inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[10px] font-medium tracking-widest uppercase", badgeClass(tone))}>
+      <Dot tone={tone} />
       {children}
+    </span>
+  );
+}
+
+function MetricTile({ label, value, tone = "neutral", suffix = "" }) {
+  return (
+    <div className="border-t border-slate-900/80 pt-4">
+      <div className={labelClass}>{label}</div>
+      <div className={cn("mt-2 text-2xl text-slate-100", metricClass, toneClass(tone))}>
+        {value}
+        {suffix ? <span className="ml-1 text-sm text-slate-500">{suffix}</span> : null}
+      </div>
+    </div>
+  );
+}
+
+function SummaryLine({ title, value, tone = "neutral" }) {
+  return (
+    <div className="flex items-start justify-between gap-4 border-t border-slate-900/80 pt-4">
+      <div>
+        <div className={labelClass}>{title}</div>
+        <p className="mt-2 text-xs leading-6 text-slate-400">{value}</p>
+      </div>
+      <Dot tone={tone} />
+    </div>
+  );
+}
+
+function normalizeMacroRows(snapshot = {}) {
+  const indices = asArray(snapshot.indices || snapshot.marketData?.indices || snapshot.sources?.marketData?.data?.indices);
+  const macroFeed = asArray(snapshot.sources?.xMacro?.data || snapshot.xMacro || snapshot.macro);
+  const policyFlow = snapshot.narrative?.politicalFlow || snapshot.layers?.narrative?.politicalFlow || {};
+  const topPolicies = asArray(policyFlow.policyTilt?.topPolicies || policyFlow.topPolicies).slice(0, 4);
+
+  return {
+    indices,
+    macroFeed,
+    topPolicies,
+    politicalSymbols: asArray(policyFlow.symbols).slice(0, 5)
+  };
+}
+
+export default function MacroRadarBoard({
+  snapshot = {},
+  macro,
+  narrative,
+  marketRegime,
+  riskRegime,
+  confidenceScore,
+  className = ""
+}) {
+  const resolvedRegime = marketRegime || snapshot.marketRegime || snapshot.layers?.marketRegime || {};
+  const resolvedRisk = riskRegime || snapshot.riskRegime || snapshot.risk || {};
+  const resolvedConfidence = confidenceScore || snapshot.confidenceScore || snapshot.layers?.confidenceScore || {};
+  const resolvedNarrative = narrative || snapshot.narrative || snapshot.layers?.narrative || {};
+  const macroReport = macro || resolvedNarrative.macro || snapshot.sources?.xMacro?.data?.[0] || {};
+  const { indices, macroFeed, topPolicies, politicalSymbols } = normalizeMacroRows({ ...snapshot, narrative: resolvedNarrative });
+
+  const spy = indices.find((item) => item.id === "SPY" || item.symbol === "SPY");
+  const qqq = indices.find((item) => item.id === "QQQ" || item.symbol === "QQQ" || item.id === "NDX");
+  const vix = indices.find((item) => item.id === "VIX" || item.symbol === "VIX");
+  const dxy = indices.find((item) => item.id === "DXY" || item.symbol === "DXY");
+
+  const regimeType = resolvedRegime.type || snapshot.summary?.marketRegime || "NEUTRAL";
+  const riskMode = resolvedRisk.mode || snapshot.summary?.riskMode || "Neutral";
+  const confidence = resolvedConfidence.tradeConfidence || snapshot.summary?.confidence || "LOW";
+  const narrativeStatus = resolvedNarrative.status || resolvedNarrative.politicalFlow?.trumpTrades?.status || "fallback";
+
+  const narrativeSummary =
+    resolvedNarrative.summary ||
+    macroReport.summary ||
+    snapshot.summary?.strategy ||
+    "Macro signal remains stable while market structure waits for stronger confirmation.";
+
+  const headline =
+    resolvedNarrative.headline ||
+    snapshot.summary?.headline ||
+    `${regimeType} macro tape with ${riskMode} positioning bias`;
+
+  return (
+    <section className={cn(surfaceClass, "min-h-[420px] space-y-4", className)}>
+      <div className="flex items-start justify-between gap-6">
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <RadioTower className="h-4 w-4 text-slate-500" />
+            <span className={labelClass}>Macro Environment</span>
+          </div>
+          <h2 className="max-w-3xl text-3xl font-extralight leading-tight text-slate-100">
+            {headline}
+          </h2>
+        </div>
+        <Pill tone={narrativeStatus}>{narrativeStatus}</Pill>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[1.35fr_0.65fr]">
+        <div className="space-y-4">
+          <div className="rounded-xl border border-slate-900/80 bg-slate-950/30 p-5">
+            <div className={labelClass}>Executive Summary</div>
+            <p className="mt-4 text-sm leading-7 text-slate-300">
+              <strong className="font-semibold text-slate-100">{regimeType}</strong>
+              <span className="text-slate-500"> regime confirms </span>
+              <strong className={cn("font-semibold", toneClass(riskMode))}>{riskMode}</strong>
+              <span className="text-slate-500"> conditions. </span>
+              {narrativeSummary}
+            </p>
+          </div>
+
+          <div className="grid gap-6 md:grid-cols-4">
+            <MetricTile label="SPY Delta" value={formatNumber(spy?.change)} suffix="%" tone={spy?.change >= 0 ? "bullish" : "bearish"} />
+            <MetricTile label="QQQ Delta" value={formatNumber(qqq?.change)} suffix="%" tone={qqq?.change >= 0 ? "bullish" : "bearish"} />
+            <MetricTile label="VIX Delta" value={formatNumber(vix?.change)} suffix="%" tone={vix?.change > 0 ? "bearish" : "bullish"} />
+            <MetricTile label="Confidence" value={confidence} tone={confidence} />
+          </div>
+
+          <div className="grid gap-6 md:grid-cols-2">
+            <SummaryLine
+              title="Market Structure"
+              value={resolvedRegime.explanation || "Index structure is online, but breadth and leadership still control execution quality."}
+              tone={regimeType}
+            />
+            <SummaryLine
+              title="Dollar Pressure"
+              value={`DXY currently prints ${formatNumber(dxy?.change)}%. A stronger dollar mechanically reduces tolerance for long-duration risk.`}
+              tone={dxy?.change > 0 ? "bearish" : "neutral"}
+            />
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div className="rounded-xl border border-slate-900/80 bg-slate-950/30 p-5">
+            <div className="flex items-center justify-between">
+              <div className={labelClass}>Political Flow</div>
+              <Globe2 className="h-4 w-4 text-slate-600" />
+            </div>
+            <div className="mt-5 space-y-4">
+              {(topPolicies.length ? topPolicies : [{ policy: "policy cache", weight: 0 }]).map((item) => (
+                <div key={item.policy} className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <Dot tone={item.weight > 0 ? "bullish" : item.weight < 0 ? "bearish" : "neutral"} />
+                    <span className="text-xs text-slate-400">{item.policy}</span>
+                  </div>
+                  <span className={cn("text-sm", metricClass, toneClass(item.weight > 0 ? "bullish" : item.weight < 0 ? "bearish" : "neutral"))}>
+                    {formatNumber(item.weight)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-900/80 bg-slate-950/30 p-5">
+            <div className="flex items-center justify-between">
+              <div className={labelClass}>Sensitive Symbols</div>
+              <Activity className="h-4 w-4 text-slate-600" />
+            </div>
+            <div className="mt-5 flex flex-wrap gap-2">
+              {(politicalSymbols.length ? politicalSymbols : [{ symbol: "SPY", bias: "NEUTRAL" }, { symbol: "QQQ", bias: "NEUTRAL" }]).map((item) => (
+                <span
+                  key={`${item.symbol}-${item.bias}`}
+                  className={cn("rounded-full border px-2.5 py-1 text-xs", metricClass, badgeClass(item.bias))}
+                >
+                  {item.symbol}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-900/80 bg-slate-950/30 p-5">
+            <div className={labelClass}>Macro Feed</div>
+            <div className="mt-5 space-y-4">
+              {(macroFeed.length ? macroFeed.slice(0, 3) : [{ title: "Macro Monitor", summary: "No external macro feed available.", tone: "neutral" }]).map((item, index) => (
+                <div key={`${item.title}-${index}`} className="flex gap-3">
+                  <CircleDot className={cn("mt-1 h-3.5 w-3.5 shrink-0", toneClass(item.tone || item.bias))} />
+                  <div>
+                    <div className="text-xs font-normal text-slate-300">{item.title || item.source || "Macro Signal"}</div>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">{item.summary || item.description || item.reason}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
-  );
-}
-
-function Pill({ children, tone = "slate" }) {
-  const tones = {
-    emerald: "border-emerald-400/25 bg-emerald-400/10 text-emerald-200",
-    amber: "border-amber-400/25 bg-amber-400/10 text-amber-200",
-    rose: "border-rose-400/25 bg-rose-400/10 text-rose-200",
-    sky: "border-sky-400/25 bg-sky-400/10 text-sky-200",
-    slate: "border-slate-700 bg-slate-900/70 text-slate-300",
-  };
-  return <span className={cn("rounded-full border px-2.5 py-1 text-[11px] font-black uppercase tracking-[0.18em]", tones[tone])}>{children}</span>;
-}
-
-function BiasBar({ label, value, tone = "sky" }) {
-  const colors = {
-    emerald: "bg-emerald-300/80",
-    amber: "bg-amber-300/80",
-    rose: "bg-rose-300/80",
-    sky: "bg-sky-300/80",
-  };
-
-  return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950/55 p-3">
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-[11px] font-black uppercase tracking-[0.16em] text-slate-500">{label}</span>
-        <span className="font-mono text-xs font-black text-slate-300">{value}%</span>
-      </div>
-      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-800/80">
-        <div className={cn("h-full rounded-full", colors[tone])} style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
-      </div>
-    </div>
-  );
-}
-
-const DEFAULT_MACRO_STATES = [
-  {
-    state: "Risk-On Expansion",
-    short: "Attack",
-    tone: "emerald",
-    icon: TrendingUp,
-    condition: "QQQ firm, VIX fading, dollar stable, breadth improving.",
-    action: "Permit selective CALL setups after micro confirmation.",
-    bias: { attack: 76, wait: 38, defend: 18 },
-  },
-  {
-    state: "Transition / Chop",
-    short: "Wait",
-    tone: "amber",
-    icon: Activity,
-    condition: "Index direction and volatility are not aligned.",
-    action: "Reduce frequency. Let the first move reveal liquidity.",
-    bias: { attack: 42, wait: 74, defend: 44 },
-  },
-  {
-    state: "Risk-Off Defense",
-    short: "Defend",
-    tone: "rose",
-    icon: ShieldAlert,
-    condition: "VIX rising, QQQ weak, dollar/yields pressuring duration.",
-    action: "No chasing. Prefer PUT / hedge watch or stay flat.",
-    bias: { attack: 16, wait: 64, defend: 82 },
-  },
-];
-
-const TONE_STYLES = {
-  emerald: {
-    card: "border-emerald-300/20 bg-emerald-400/[0.045]",
-    active: "ring-1 ring-emerald-300/40",
-    accent: "bg-emerald-300/80",
-    text: "text-emerald-200",
-  },
-  amber: {
-    card: "border-amber-300/20 bg-amber-400/[0.045]",
-    active: "ring-1 ring-amber-300/40",
-    accent: "bg-amber-300/80",
-    text: "text-amber-200",
-  },
-  rose: {
-    card: "border-rose-300/20 bg-rose-400/[0.045]",
-    active: "ring-1 ring-rose-300/40",
-    accent: "bg-rose-300/80",
-    text: "text-rose-200",
-  },
-};
-
-export default function MacroRadarBoard({ states = DEFAULT_MACRO_STATES, activeState }) {
-  const initialIndex = useMemo(() => {
-    if (!activeState) return 0;
-    const found = states.findIndex((item) => item.state === activeState || item.short === activeState);
-    return found >= 0 ? found : 0;
-  }, [activeState, states]);
-
-  const [active, setActive] = useState(initialIndex);
-  const current = states[active] || states[0];
-  const CurrentIcon = current.icon || Gauge;
-  const currentTone = TONE_STYLES[current.tone] || TONE_STYLES.amber;
-
-  return (
-    <div className="grid gap-5">
-      <div className="grid gap-3 md:grid-cols-3">
-        {states.map((item, index) => {
-          const Icon = item.icon || Gauge;
-          const tone = TONE_STYLES[item.tone] || TONE_STYLES.amber;
-          const selected = index === active;
-
-          return (
-            <button
-              key={item.state}
-              type="button"
-              onMouseEnter={() => setActive(index)}
-              onFocus={() => setActive(index)}
-              className={cn(
-                "group rounded-[1.35rem] border p-4 text-left transition duration-200 hover:-translate-y-0.5",
-                tone.card,
-                selected ? tone.active : "",
-              )}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-500">Macro State</p>
-                  <h3 className="mt-2 text-sm font-black text-slate-100">{item.state}</h3>
-                </div>
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-2">
-                  <Icon className={cn("h-4 w-4", tone.text)} />
-                </div>
-              </div>
-              <p className="mt-4 min-h-[48px] text-sm font-semibold leading-6 text-slate-400">{item.condition}</p>
-              <div className="mt-4 flex items-center justify-between gap-3">
-                <Pill tone={item.tone}>{item.short}</Pill>
-                <span className="font-mono text-[11px] font-bold text-slate-500">FILTER</span>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-
-      <Card className="overflow-hidden">
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div>
-            <div className="flex items-center gap-3">
-              <span className={cn("h-2.5 w-2.5 rounded-full", currentTone.accent)} />
-              <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-500">Current Macro Filter</p>
-            </div>
-            <div className="mt-4 flex items-center gap-3">
-              <CurrentIcon className={cn("h-6 w-6", currentTone.text)} />
-              <h2 className="text-2xl font-black tracking-tight text-slate-50 md:text-3xl">{current.state}</h2>
-            </div>
-            <p className="mt-3 max-w-3xl text-sm font-semibold leading-7 text-slate-400">{current.action}</p>
-          </div>
-          <Pill tone={current.tone}>{current.short}</Pill>
-        </div>
-
-        <div className="mt-6 grid gap-3 md:grid-cols-3">
-          <BiasBar label="CALL / Attack" value={current.bias.attack} tone="emerald" />
-          <BiasBar label="Wait / De-risk" value={current.bias.wait} tone="amber" />
-          <BiasBar label="PUT / Defend" value={current.bias.defend} tone="rose" />
-        </div>
-
-        <div className="mt-5 rounded-2xl border border-slate-800 bg-slate-950/55 p-4">
-          <div className="mb-3 flex items-center gap-2">
-            <LineChart className="h-4 w-4 text-sky-200" />
-            <span className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-500">Execution Principle</span>
-          </div>
-          <p className="text-sm font-semibold leading-7 text-slate-300">
-            Macro environment is only a filter. Micro signals still decide execution: liquidity sweep, VWAP behavior,
-            relative volume, sector alignment, and price-volume confirmation.
-          </p>
-        </div>
-      </Card>
-    </div>
   );
 }
