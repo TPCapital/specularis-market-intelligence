@@ -8,7 +8,7 @@
   let applying = false;
   const originals = new WeakMap();
 
-  const dict = new Map(Object.entries({
+  const exact = new Map(Object.entries({
     "AI 美股信息流交易系统": "AI U.S. Equity Flow Intelligence System",
     "初始化": "Initializing",
     "等待快照": "Waiting for snapshot",
@@ -29,6 +29,11 @@
     "执行倾向": "Execution Bias",
     "不追无量高开": "Do not chase low-volume gap-ups",
     "观察": "Watch",
+    "风险规避": "Risk Avoidance",
+    "风险升温": "Risk Heating Up",
+    "防御等待": "Defensive Wait",
+    "PUT / 对冲观察": "PUT / Hedge Watch",
+    "禁止交易": "No Trade",
     "读取最新快照。": "Reading the latest snapshot.",
     "今日策略": "Today's Strategy",
     "谨慎追高，等待回踩确认": "Avoid chasing; wait for pullback confirmation",
@@ -83,15 +88,6 @@
     "最近有效": "Last valid",
     "备用快照": "Backup snapshot",
     "实时 + 结构化情报": "Live + structured intelligence",
-    "资金流基于实时数据": "Flow based on live data",
-    "资金流基于延迟数据": "Flow based on delayed data",
-    "资金流基于代理推断数据": "Flow based on proxy inference data",
-    "资金流基于最后成功数据": "Flow based on last successful data",
-    "资金流基于缓存快照": "Flow based on cached snapshot",
-    "数据生成：": "Data generated: ",
-    "页面刷新：": "Page refreshed: ",
-    "数据可靠性：": "Data reliability: ",
-    "置信度": "Confidence",
     "高": "High",
     "中": "Medium",
     "低": "Low",
@@ -128,17 +124,135 @@
     "风险：期权信号只作辅助，需等待开盘量价确认。": "Risk: options signals are auxiliary only; wait for opening price-volume confirmation."
   }));
 
-  const phraseRules = [
-    [/北京时间/g, "Beijing Time"], [/等待同步/g, "Awaiting Sync"], [/等待确认/g, "Awaiting Confirmation"],
-    [/读取快照/g, "Reading Snapshot"], [/观察模式/g, "Observation Mode"], [/结构参考/g, "Structural Reference"],
-    [/非实时/g, "Not Real-Time"], [/延迟数据/g, "Delayed Data"], [/实时数据/g, "Live Data"],
-    [/代理推断/g, "Proxy Inference"], [/缓存快照/g, "Cached Snapshot"], [/风险偏好/g, "Risk Appetite"],
-    [/盘前/g, "Pre-Market"], [/盘中/g, "Intraday"], [/收盘/g, "Close"], [/明日/g, "Next Session"],
-    [/市场/g, "Market"], [/板块/g, "Sector"], [/机会/g, "Opportunity"], [/动量/g, "Momentum"],
-    [/异动/g, "Mover"], [/热度/g, "Heat"], [/追高/g, "Chasing"], [/回踩/g, "Pullback"],
-    [/确认/g, "Confirmation"], [/情绪/g, "Sentiment"], [/宏观/g, "Macro"], [/新闻/g, "News"],
-    [/期权/g, "Options"], [/信号/g, "Signal"], [/数据源/g, "Data Source"], [/数据/g, "Data"],
-    [/读取/g, "Reading"], [/同步/g, "Sync"], [/最新/g, "Latest"], [/正常/g, "Normal"], [/谨慎/g, "Cautious"]
+  const replacements = [
+    [/资金流基于\s*Live Data\s*/gi, "Flow basis: live data "],
+    [/资金流基于\s*Delayed Data\s*/gi, "Flow basis: delayed data "],
+    [/资金流基于\s*Proxy Inference\s*/gi, "Flow basis: proxy inference "],
+    [/资金流基于实时数据\s*/g, "Flow basis: live data "],
+    [/资金流基于延迟数据\s*/g, "Flow basis: delayed data "],
+    [/资金流基于代理推断数据\s*/g, "Flow basis: proxy inference "],
+    [/资金流基于最后成功数据\s*/g, "Flow basis: last successful data "],
+    [/资金流基于缓存快照/g, "Flow basis: cached snapshot"],
+    [/Data生成[：:]/g, "Data generated:"],
+    [/页面刷新[：:]/g, "Page refreshed:"],
+    [/数据生成[：:]/g, "Data generated:"],
+    [/数据可靠性[：:]/g, "Data reliability:"],
+    [/置信度\s*/g, "Confidence "],
+    [/Market宽度/g, "Market breadth"],
+    [/市场宽度/g, "Market breadth"],
+    [/Pre-Market动能/g, "Pre-market momentum"],
+    [/盘前动能/g, "Pre-market momentum"],
+    [/动能股/g, "momentum stocks"],
+    [/集中在/g, "is concentrated in"],
+    [/优先等待/g, "prefer waiting for"],
+    [/等待开盘量价Confirmation/g, "wait for opening price-volume confirmation"],
+    [/开盘量价确认/g, "opening price-volume confirmation"],
+    [/开盘量价/g, "opening price-volume"],
+    [/防御等待/g, "Defensive Wait"],
+    [/风险规避/g, "Risk Avoidance"],
+    [/风险升温/g, "Risk Heating Up"],
+    [/对冲观察/g, "Hedge Watch"],
+    [/禁止交易/g, "No Trade"],
+    [/无交易/g, "No Trade"],
+    [/不交易/g, "No Trade"],
+    [/不追/g, "Do not chase"],
+    [/无量高开/g, "low-volume gap-up"],
+    [/追高/g, "chasing"],
+    [/回踩/g, "pullback"],
+    [/确认/g, "confirmation"],
+    [/等待/g, "wait for"],
+    [/优先/g, "prefer"],
+    [/风控/g, "risk control"],
+    [/风险/g, "risk"],
+    [/规避/g, "avoidance"],
+    [/升温/g, "heating up"],
+    [/防御/g, "defensive"],
+    [/观望/g, "watch"],
+    [/观察/g, "watch"],
+    [/可交易/g, "tradable"],
+    [/交易/g, "trade"],
+    [/市场/g, "market"],
+    [/板块/g, "sector"],
+    [/主线/g, "main theme"],
+    [/机会/g, "opportunity"],
+    [/量价/g, "price-volume"],
+    [/指数/g, "indices"],
+    [/波动率/g, "volatility"],
+    [/收益率/g, "yield"],
+    [/美元/g, "dollar"],
+    [/黄金/g, "gold"],
+    [/宽度/g, "breadth"],
+    [/动能/g, "momentum"],
+    [/异动/g, "mover"],
+    [/热度/g, "heat"],
+    [/催化/g, "catalyst"],
+    [/正向/g, "positive"],
+    [/负面/g, "negative"],
+    [/利好/g, "bullish"],
+    [/利空/g, "bearish"],
+    [/中性/g, "neutral"],
+    [/偏谨慎/g, "cautious"],
+    [/谨慎/g, "cautious"],
+    [/偏乐观/g, "moderately optimistic"],
+    [/乐观/g, "optimistic"],
+    [/悲观/g, "pessimistic"],
+    [/高/g, "high"],
+    [/中/g, "medium"],
+    [/低/g, "low"],
+    [/读取/g, "reading"],
+    [/同步/g, "sync"],
+    [/快照/g, "snapshot"],
+    [/实时/g, "live"],
+    [/延迟/g, "delayed"],
+    [/缓存/g, "cached"],
+    [/代理/g, "proxy"],
+    [/数据/g, "data"],
+    [/生成/g, "generated"],
+    [/刷新/g, "refreshed"],
+    [/日期/g, "date"],
+    [/新闻/g, "news"],
+    [/宏观/g, "macro"],
+    [/散户/g, "retail"],
+    [/情绪/g, "sentiment"],
+    [/提及/g, "mentions"],
+    [/来源/g, "source"],
+    [/状态/g, "status"],
+    [/正常/g, "normal"],
+    [/最新/g, "latest"],
+    [/最近/g, "recent"],
+    [/有效/g, "valid"],
+    [/核心/g, "core"],
+    [/主题/g, "theme"],
+    [/追踪/g, "tracking"],
+    [/半导体/g, "semiconductors"],
+    [/软件/g, "software"],
+    [/电力/g, "power"],
+    [/核能/g, "nuclear"],
+    [/年/g, "-"],
+    [/月/g, "-"],
+    [/日/g, ""],
+    [/，/g, ", "],
+    [/。/g, "."],
+    [/、/g, " / "],
+    [/：/g, ": "]
+  ];
+
+  const cleanup = [
+    [/\s{2,}/g, " "],
+    [/\s+([,.:;])/g, "$1"],
+    [/([|/])\s+/g, "$1 "],
+    [/\s+([|/])/g, " $1"],
+    [/Data reliability:\s*HIGH/g, "Data reliability: HIGH"],
+    [/Confidence\s*HIGH/gi, "Confidence HIGH"],
+    [/Confidence\s*MEDIUM/gi, "Confidence MEDIUM"],
+    [/Confidence\s*LOW/gi, "Confidence LOW"],
+    [/Live Data/gi, "live data"],
+    [/Data/g, "data"],
+    [/Pre-Market/g, "Pre-market"],
+    [/Market breadth/g, "market breadth"],
+    [/\bhigh\b/g, "High"],
+    [/\bmedium\b/g, "Medium"],
+    [/\blow\b/g, "Low"]
   ];
 
   const skipTags = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEXTAREA", "INPUT"]);
@@ -167,29 +281,63 @@
         border-color: rgba(56, 189, 248, .72);
         box-shadow: 0 0 22px rgba(56, 189, 248, .28), inset 0 0 16px rgba(56, 189, 248, .1);
       }
-      html[data-lang="en"] .section-title h2,
+      html[data-lang="en"] .topbar {
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: end;
+        gap: 18px;
+      }
+      html[data-lang="en"] h1 {
+        max-width: 1180px;
+        font-size: clamp(34px, 3.05vw, 54px);
+        line-height: .96;
+        letter-spacing: -.045em;
+      }
+      html[data-lang="en"] .meta {
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        row-gap: 8px;
+        max-width: 820px;
+      }
+      html[data-lang="en"] .workspace-nav { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+      html[data-lang="en"] .workspace-tab { min-height: 72px; padding: 14px 16px; }
+      html[data-lang="en"] .workspace-tab strong {
+        font-size: clamp(12px, .92vw, 15px);
+        line-height: 1.05;
+        letter-spacing: .02em;
+      }
+      html[data-lang="en"] .workspace-tab em { font-size: 10px; letter-spacing: .16em; }
       html[data-lang="en"] .command-tile p,
-      html[data-lang="en"] .workspace-tab strong,
-      html[data-lang="en"] .panel-label { letter-spacing: .02em; }
-      html[data-lang="en"] .workspace-tab strong { font-size: clamp(11px, .9vw, 13px); }
+      html[data-lang="en"] .panel-label,
+      html[data-lang="en"] .section-title h2 { letter-spacing: .03em; }
+      html[data-lang="en"] .command-tile strong { font-size: clamp(22px, 2vw, 38px); line-height: 1.02; }
+      html[data-lang="en"] .risk-mode { font-size: clamp(42px, 5.3vw, 86px); line-height: .92; }
+      html[data-lang="en"] .strategy-panel h2 { font-size: clamp(34px, 3.2vw, 60px); line-height: .98; }
+      html[data-lang="en"] .strategy-panel p,
+      html[data-lang="en"] .conclusion { line-height: 1.45; }
+      @media (max-width: 1180px) {
+        html[data-lang="en"] .topbar { grid-template-columns: 1fr; }
+        html[data-lang="en"] .meta { justify-content: flex-start; max-width: none; }
+        html[data-lang="en"] .workspace-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      }
     `;
     document.head.appendChild(style);
-  }
-
-  function translateText(value) {
-    const original = String(value || "");
-    const trimmed = original.trim();
-    if (!trimmed || !CJK_RE.test(trimmed)) return original;
-    if (dict.has(trimmed)) return preserveSpacing(original, dict.get(trimmed));
-    let next = original;
-    for (const [pattern, replacement] of phraseRules) next = next.replace(pattern, replacement);
-    return next;
   }
 
   function preserveSpacing(original, translated) {
     const prefix = original.match(/^\s*/)?.[0] || "";
     const suffix = original.match(/\s*$/)?.[0] || "";
     return `${prefix}${translated}${suffix}`;
+  }
+
+  function translateText(value) {
+    const original = String(value || "");
+    const trimmed = original.trim();
+    if (!trimmed || !CJK_RE.test(trimmed)) return original;
+    if (exact.has(trimmed)) return preserveSpacing(original, exact.get(trimmed));
+    let next = original;
+    for (const [pattern, replacement] of replacements) next = next.replace(pattern, replacement);
+    for (const [pattern, replacement] of cleanup) next = next.replace(pattern, replacement);
+    return next;
   }
 
   function getTextNodes(root = document.body) {
@@ -208,7 +356,11 @@
   function rememberNode(node) {
     const current = node.nodeValue;
     const saved = originals.get(node);
-    if (!saved || (CJK_RE.test(current) && current !== translateText(saved))) {
+    if (!saved) {
+      originals.set(node, current);
+      return;
+    }
+    if (CJK_RE.test(current) && current !== translateText(saved)) {
       originals.set(node, current);
     }
   }
@@ -269,6 +421,9 @@
       observer.observe(document.body, { childList: true, subtree: true, characterData: true });
     }
     scheduleApply();
+    setTimeout(scheduleApply, 80);
+    setTimeout(scheduleApply, 300);
+    setTimeout(scheduleApply, 900);
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
