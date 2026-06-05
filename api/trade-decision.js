@@ -1,5 +1,5 @@
-import { noStoreJson } from "../lib/utils.js";
-import { buildSnapshot } from "./snapshot.js";
+import { noStoreJson } from "./_lib/utils.js";
+import { buildSnapshot } from "./_lib/engines/snapshot-engine.js";
 
 export default async function handler(req, res) {
   try {
@@ -13,10 +13,10 @@ export default async function handler(req, res) {
         grade: "C",
         score: 50,
         direction: "WAIT",
-        permission: "只看不做",
-        actionBias: "等待确认",
-        title: "C｜等待确认",
-        summary: "交易决策引擎未获得足够数据，等待下一次快照。"
+        permission: "watch-only",
+        actionBias: "wait for confirmation",
+        title: "C | Waiting for confirmation",
+        summary: "Trade decision engine did not receive enough data. Wait for the next snapshot."
       },
       marketRegime: snapshot.marketRegime || snapshot.riskRegime || {},
       cache: snapshot.cacheWriteStatus || null
@@ -30,10 +30,10 @@ export default async function handler(req, res) {
         grade: "NO TRADE",
         score: 0,
         direction: "WAIT",
-        permission: "禁止交易",
-        actionBias: "等待恢复",
-        title: "NO TRADE｜数据异常",
-        summary: "Trade Decision Engine 暂时不可用。"
+        permission: "no-trade",
+        actionBias: "wait for recovery",
+        title: "NO TRADE | Data unavailable",
+        summary: "Trade Decision Engine is temporarily unavailable."
       }
     });
   }
