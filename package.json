@@ -1,0 +1,16 @@
+{
+  "name": "ai-us-equity-flow-dashboard",
+  "version": "4.0.0",
+  "private": true,
+  "type": "module",
+  "description": "AI US Equity Flow Terminal — Multi-source market intelligence with political insider tracking, SWR cache architecture, and narrative engine.",
+  "scripts": {
+    "dev": "node scripts/dev-server.js",
+    "preview": "node scripts/dev-server.js",
+    "cron:trump": "node -e \"import('./api/trump-trades.js').then(m => m.buildPoliticalTradesLayer().then(d => console.log(JSON.stringify(d, null, 2))))\"",
+    "cron:snapshot": "node -e \"console.log('Use Vercel deployment for full snapshot cron')\""
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

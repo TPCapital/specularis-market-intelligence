@@ -1,0 +1,59 @@
+{
+  "buildCommand": "node -e \"console.log('Static dashboard: no build step required')\"",
+  "outputDirectory": ".",
+  "cleanUrls": true,
+  "crons": [
+    {
+      "path": "/api/trump-trades",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/snapshot",
+      "schedule": "*/5 * * * *"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store, max-age=0, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/index.html",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store, max-age=0, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/app.js",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store, max-age=0, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/config.js",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store, max-age=0, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/styles.css",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store, max-age=0, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/api/snapshot",
+      "headers": [
+        { "key": "Cache-Control", "value": "s-maxage=30, stale-while-revalidate=300" }
+      ]
+    },
+    {
+      "source": "/api/trump-trades",
+      "headers": [
+        { "key": "Cache-Control", "value": "s-maxage=900, stale-while-revalidate=1800" }
+      ]
+    }
+  ]
+}
