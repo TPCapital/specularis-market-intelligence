@@ -157,11 +157,11 @@ function mergeOilSnapshot(state, snapshot = {}) {
   return state;
 }
 
-export function renderOptionsIntelLite(containerId) {
+export function renderOptionsIntelLite(containerId, snapshot = {}) {
   const container = document.getElementById(containerId);
   if (!container) return;
 
-  let state = loadState();
+  let state = mergeOilSnapshot(loadState(), snapshot);
   for (const t of WATCHLIST) {
     if (!state[t]) {
       state[t] = {
@@ -233,6 +233,8 @@ export function renderOptionsIntelLite(containerId) {
     redraw();
   });
 
+  // Persist the auto-hydrated state so other tabs / prompt export can see it.
+  saveState(state);
   return { getState: () => state };
 }
 

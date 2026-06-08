@@ -142,25 +142,63 @@ function renderCard(decision) {
     <span class="adl-vehicle">${escHtml(VEHICLE_LABELS[decision.preferredVehicle] || decision.preferredVehicle)}</span>
   </div>
   ${breakdownHtml}
+  ${decision.reason ? `<p class="adl-reason">${escHtml(decision.reason)}</p>` : ""}
   ${levelsHtml}
   <p class="adl-risk-warn">⚠️ 仅供研究 · Not financial advice</p>
 </article>`;
 }
 
-export function renderAIDecisionLayer(containerId, getModuleStates) {
+function normalizeServerDecision(decision = {}) {
+  const bd = decision.scoreBreakdown || {};
+  return {
+    ticker: decision.ticker,
+    score: decision.score ?? null,
+    rating: decision.rating || "placeholder",
+    action: decision.action || "watch",
+    preferredVehicle: decision.preferredVehicle || "no_trade",
+    keyEntryZone: decision.keyEntryZone || null,
+    invalidationLevel: decision.invalidationLevel || null,
+    targetZone: decision.targetZone || null,
+    reason: decision.reason || "Server-side Lite decision.",
+    riskWarning: decision.riskWarning || "仅供研究，不构成投资建议。For research only, not financial advice.",
+    scoreBreakdown: {
+      regimeScore: bd.regimeScore ?? bd.marketRegime ?? 0,
+      trendScore: bd.trendScore ?? bd.stockTrend ?? 0,
+      catalystScore: bd.catalystScore ?? bd.catalystQuality ?? 0,
+      optScore: bd.optScore ?? bd.optionRiskReward ?? 0,
+      kolScore: bd.kolScore ?? bd.kolConfirmation ?? 0,
+      riskCtrlScore: bd.riskCtrlScore ?? bd.riskControlClarity ?? 0,
+    },
+    dataStatus: decision.dataStatus || "computed-lite",
+  };
+}
+
+function getServerDecisions(snapshot = {}) {
+  const rows = snapshot?.terminalLite?.aiDecisionLayer;
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  const usable = rows.filter((r) => r && r.ticker && r.dataStatus !== "placeholder");
+  return usable.length ? usable.map(normalizeServerDecision) : null;
+}
+
+export function renderAIDecisionLayer(containerId, getModuleStates, initialSnapshot = {}) {
   const container = document.getElementById(containerId);
   if (!container) return;
+  let latestSnapshot = initialSnapshot || {};
 
   function redraw() {
     container.classList.remove("is-loading");
-    const { sipState = {}, oilState = {}, kolState = {}, marketRegime = {} } = getModuleStates();
-    const kolEntries = kolState.entries || [];
-
-    const decisions = WATCHLIST.map((ticker) => {
-      const sipEntry = { ticker, ...(sipState[ticker] || {}) };
-      const oilEntry = oilState[ticker] || {};
-      return scoreDecision({ sipEntry, oilEntry, kolEntries, marketRegime });
-    });
+    const moduleStates = getModuleStates();
+    latestSnapshot = moduleStates.snapshot || latestSnapshot || {};
+    const serverDecisions = getServerDecisions(latestSnapshot);
+    const decisions = serverDecisions || (() => {
+      const { sipState = {}, oilState = {}, kolState = {}, marketRegime = {} } = moduleStates;
+      const kolEntries = kolState.entries || [];
+      return WATCHLIST.map((ticker) => {
+        const sipEntry = { ticker, ...(sipState[ticker] || {}) };
+        const oilEntry = oilState[ticker] || {};
+        return scoreDecision({ sipEntry, oilEntry, kolEntries, marketRegime });
+      });
+    })();
 
     // Sort by score descending.
     const sorted = [...decisions].sort((a, b) => {
@@ -188,8 +226,12 @@ export function renderAIDecisionLayer(containerId, getModuleStates) {
   redraw();
 
   // Recompute when any module updates.
-  ["specularis:sipUpdated", "specularis:oilUpdated", "specularis:kolUpdated", "specularis:snapshotReady"].forEach((evtName) => {
+  ["specularis:sipUpdated", "specularis:oilUpdated", "specularis:kolUpdated"].forEach((evtName) => {
     document.addEventListener(evtName, () => redraw());
+  });
+  document.addEventListener("specularis:snapshotReady", (e) => {
+    latestSnapshot = e.detail || {};
+    redraw();
   });
 
   return { redraw };

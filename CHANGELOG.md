@@ -1,4 +1,14 @@
 
+## v1.3.2 — Frontend Snapshot Sync + Auto Data Rendering Fix
+
+- Fixed Terminal Lite front-end modules staying on placeholder/manual localStorage state.
+- Snapshot polling now watches `generatedAt`, which is the actual timestamp used by `/api/snapshot`.
+- Stock Intelligence Pro and Options Intelligence Lite hydrate from `terminalLite` immediately on load.
+- AI Decision Layer now prefers server-side `terminalLite.aiDecisionLayer` instead of recomputing from stale localStorage.
+- Stock news matching now supports `symbol`, `ticker`, `relatedTickers`, `reason`, and `chineseSummary`, not only headline text.
+- Manual edit remains available as override, but auto data is now the default display path.
+
+
 ## v1.3.1 - News Catalyst Fast-Path Fix
 
 - Fixed news source selection so Google News RSS participates in the main news aggregation pipeline.

@@ -34,31 +34,53 @@ function getLatestSnapshot() {
   }
 }
 
+// Keep live module handles so AI Decision / Prompt Export read the rendered
+// in-memory state instead of stale localStorage placeholders.
+let sipModule = null;
+let oilModule = null;
+let kolModule = null;
+let latestSnapshot = {};
+
 // Provide current state to all modules that need cross-module data.
 function getModuleStates() {
   return {
-    sipState: getStockIntelState(),
-    oilState: getOptionsLiteState(),
-    kolState: getKolState(),
+    sipState: sipModule?.getState?.() || getStockIntelState(),
+    oilState: oilModule?.getState?.() || getOptionsLiteState(),
+    kolState: kolModule?.getState?.() || getKolState(),
     marketRegime: getMarketRegime(),
+    snapshot: latestSnapshot || getLatestSnapshot(),
   };
 }
 
+function snapshotId(d = {}) {
+  return d.generatedAt || d.asOf || d.updatedAt || d.terminalLite?.meta?.generatedAt || null;
+}
+
 function initModules() {
+  latestSnapshot = getLatestSnapshot();
+
   // Stock Intelligence Pro.
-  const sipModule = renderStockIntelPro("sipContainer", getLatestSnapshot());
+  sipModule = renderStockIntelPro("sipContainer", latestSnapshot);
 
   // Options Intelligence Lite.
-  renderOptionsIntelLite("oilContainer");
+  oilModule = renderOptionsIntelLite("oilContainer", latestSnapshot);
 
   // KOL Distillation.
-  renderKolDistillation("kolContainer");
+  kolModule = renderKolDistillation("kolContainer");
 
-  // AI Decision Layer — needs references to other module states.
-  renderAIDecisionLayer("adlContainer", getModuleStates);
+  // AI Decision Layer — now prefers server-side terminalLite.aiDecisionLayer when present.
+  renderAIDecisionLayer("adlContainer", getModuleStates, latestSnapshot);
 
   // AI Prompt Export — generates copyable prompts.
   renderAIPromptExport("apeContainer", getModuleStates);
+
+  // If app.js already populated a snapshot before this module loaded, immediately
+  // notify all child modules so they hydrate from real API data.
+  if (snapshotId(latestSnapshot)) {
+    queueMicrotask(() => {
+      document.dispatchEvent(new CustomEvent("specularis:snapshotReady", { detail: latestSnapshot }));
+    });
+  }
 
   console.log("[Specularis Terminal Lite] All modules initialized.");
 }
@@ -70,17 +92,19 @@ if (document.readyState === "loading") {
   initModules();
 }
 
-// When app.js fires a snapshot refresh, notify our modules.
-// app.js doesn't fire events natively, so we poll and detect changes.
+// app.js doesn't fire events natively, so poll and detect snapshot changes.
+// IMPORTANT: current snapshots use generatedAt, not asOf/updatedAt. v1.3.1
+// missed this, causing front-end modules to stay on placeholders.
 let lastSnapshotAt = null;
 setInterval(() => {
   const d = window._specularisDashboard;
   if (!d) return;
-  const ts = d.asOf || d.updatedAt;
+  const ts = snapshotId(d);
   if (ts && ts !== lastSnapshotAt) {
     lastSnapshotAt = ts;
+    latestSnapshot = d;
     document.dispatchEvent(
       new CustomEvent("specularis:snapshotReady", { detail: d })
     );
   }
-}, 5000);
+}, 1000);

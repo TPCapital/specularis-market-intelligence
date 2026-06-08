@@ -3188,13 +3188,18 @@ async function buildSnapshot(req) {
       ? change >= 3 ? "strong_uptrend" : change > 0.8 ? "uptrend" : change <= -3 ? "strong_downtrend" : change < -0.8 ? "downtrend" : "sideways"
       : "placeholder";
     const relatedNews = (newsItems || []).filter(n => {
-      const text = `${n?.title || ""} ${n?.summary || ""} ${n?.headline || ""}`.toUpperCase();
+      const symbols = [n?.symbol, n?.ticker, ...(Array.isArray(n?.relatedTickers) ? n.relatedTickers : [])]
+        .filter(Boolean).map(x => String(x).toUpperCase());
+      if (symbols.includes(ticker)) return true;
+      const text = `${n?.title || ""} ${n?.summary || ""} ${n?.headline || ""} ${n?.reason || ""} ${n?.chineseSummary || ""}`.toUpperCase();
       return text.includes(ticker);
     }).slice(0, 3).map(n => ({
-      title: n.title || n.headline || String(n).slice(0, 140),
-      source: n.source || n.provider || "news",
+      title: n.title || n.headline || n.reason || n.chineseSummary || String(n).slice(0, 140),
+      summary: n.summary || n.chineseSummary || n.reason || null,
+      source: n.source || n.provider || n.catalystType || "news",
       url: n.url || null,
-      dataStatus: "cached"
+      sentiment: n.sentiment || null,
+      dataStatus: n.dataStatus || "delayed"
     }));
     const price = hasPrice ? Number(q.price) : null;
     const keySupport = price ? Number((price * 0.97).toFixed(2)) : null;
@@ -3220,7 +3225,7 @@ async function buildSnapshot(req) {
       analystTone: "placeholder",
       institutionalSignal: "placeholder",
       aiSummary: hasPrice
-        ? `${ticker} 已接入免费/延迟行情。当前为 ${trendStatus}，涨跌幅 ${Number.isFinite(change) ? change.toFixed(2) : "--"}%。${isProxyRvol ? "成交量为 RVOL Proxy，不能当真实放量。" : "成交量为真实/可用数据。"}仍需人工确认新闻、财报与期权风险。`
+        ? `${ticker} 已接入免费/延迟行情。当前为 ${trendStatus}，涨跌幅 ${Number.isFinite(change) ? change.toFixed(2) : "--"}%。${isProxyRvol ? "成交量为 RVOL Proxy，不能当真实放量。" : "成交量为真实/可用数据。"}${relatedNews.length ? `已匹配 ${relatedNews.length} 条新闻/催化。` : "暂无匹配新闻。"}仍需确认财报与期权风险。`
         : "等待免费行情或手动输入后生成分析摘要。",
       riskFlags,
       tradeRelevance: hasPrice ? (Number.isFinite(change) && change > 1 ? "watch" : Number.isFinite(change) && change < -5 ? "avoid" : "watch") : "watch",
@@ -3347,9 +3352,9 @@ async function buildSnapshot(req) {
 
   snapshot.terminalLite = {
     meta: {
-      version: "specularis-market-terminal-lite-v1.3.1",
+      version: "specularis-market-terminal-lite-v1.3.2",
       generatedAt: new Date(generatedAt).toISOString(),
-      dataMode: "free-lite-auto-hydration-news-ai-v1.3.1",
+      dataMode: "free-lite-auto-hydration-news-ai-frontend-sync-v1.3.2",
       aiMode: envValue("GEMINI_API_KEY") ? "gemini-assisted + human-in-the-loop" : "human-in-the-loop",
       dataQuality: "mixed",
     },
@@ -3401,7 +3406,7 @@ async function buildSnapshot(req) {
 
     // ── Prompt Export config: static template metadata ──
     promptExport: {
-      version: "v1.3.1",
+      version: "v1.3.2",
       supportedLanguages: ["zh", "en"],
       mode: "human-in-the-loop",
       note: "Prompts generated client-side. No OpenAI/Anthropic API called from server.",

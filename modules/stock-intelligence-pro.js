@@ -323,7 +323,7 @@ export function renderStockIntelPro(containerId, snapshot = {}) {
     container.innerHTML = `
       <div class="sip-disclaimer">
         ⚠️ 仅供研究 · For research only, not financial advice.
-        <span class="sip-mode-label">📋 Lite Mode — 手动数据优先 / Manual Data First</span>
+        <span class="sip-mode-label">📡 Lite Mode — 自动数据 + 手动覆盖 / Auto Data + Manual Override</span>
       </div>
       <div class="sip-grid">${cards}</div>`;
 
