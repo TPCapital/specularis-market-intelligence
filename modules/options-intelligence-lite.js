@@ -37,6 +37,44 @@ function saveState(state) {
   } catch {}
 }
 
+
+function loadSipState() {
+  try {
+    const raw = localStorage.getItem("specularis-market-terminal:stock-intel-v1");
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function normalizeOptionStructureFromFlow(flowBias = "neutral") {
+  if (flowBias === "call_heavy") return "call_spread";
+  if (flowBias === "put_heavy") return "put_spread";
+  return "wait";
+}
+
+function mergeOilFromSipEnrichment(state, sipState = {}) {
+  for (const ticker of WATCHLIST) {
+    const sip = sipState[ticker] || {};
+    const opt = sip.optionsData || sip.yahooOptions;
+    if (!opt) continue;
+    if (!state[ticker]) state[ticker] = {};
+    const avgIv = Number(opt.avgIV ?? opt.avgIv);
+    const flowBias = opt.flowBias || "neutral";
+    state[ticker] = {
+      ...state[ticker],
+      preferredStructure: state[ticker].manualNote ? state[ticker].preferredStructure : normalizeOptionStructureFromFlow(flowBias),
+      ivStatus: Number.isFinite(avgIv) ? (avgIv >= 0.65 || avgIv >= 65 ? "elevated" : avgIv >= 0.35 || avgIv >= 35 ? "normal" : "low") : (state[ticker].ivStatus || "unavailable"),
+      riskLevel: Number.isFinite(avgIv) && (avgIv >= 0.65 || avgIv >= 65) ? "high" : (state[ticker].riskLevel || "medium"),
+      reason: `自动期权链：${flowBias === "put_heavy" ? "Put 偏重" : flowBias === "call_heavy" ? "Call 偏重" : "中性"}；PCR Vol ${opt.pcrVol ?? opt.putCallVolumeRatio ?? "--"}，PCR OI ${opt.pcrOI ?? opt.putCallOiRatio ?? "--"}。`,
+      notes: `Yahoo Options unofficial · Exp ${opt.expiration || "--"} · CallWall ${opt.callWallStrike || "--"} · PutWall ${opt.putWallStrike || "--"}`,
+      yahooOptions: opt,
+      dataStatus: "delayed",
+    };
+  }
+  return state;
+}
+
 function escHtml(v) {
   return String(v ?? "")
     .replace(/&/g, "&amp;")
@@ -56,10 +94,17 @@ function renderCard(ticker, entry) {
   const earningsWarning = entry.earningsVolRisk
     ? `<div class="oil-earnings-warn">⚠️ 财报窗口 — 期权溢价可能偏高 / Earnings Vol Risk</div>`
     : "";
+  const opt = entry.yahooOptions || {};
+  const autoOptionsHtml = entry.yahooOptions ? `
+    <div class="oil-future-fields">
+      <span class="oil-future-label">Yahoo Options Auto:</span>
+      <span>PCR Vol ${escHtml(opt.pcrVol ?? opt.putCallVolumeRatio ?? "--")} · PCR OI ${escHtml(opt.pcrOI ?? opt.putCallOiRatio ?? "--")} · Avg IV ${escHtml(opt.avgIV ?? opt.avgIv ?? "--")} · Flow ${escHtml(opt.flowBias || "neutral")}</span>
+    </div>` : "";
   const futureFields = `
+    ${autoOptionsHtml}
     <div class="oil-future-fields">
       <span class="oil-future-label">Future API 升级后可解锁 / Upgrade to unlock:</span>
-      <span>GammaWall · CallWall · PutWall · IV Rank · Skew · OI · 异常大单</span>
+      <span>GammaWall · IV Rank · Skew · 异常大单</span>
     </div>`;
 
   return `
@@ -160,7 +205,7 @@ export function renderOptionsIntelLite(containerId, snapshot = {}) {
   const container = document.getElementById(containerId);
   if (!container) return;
 
-  let state = mergeOilSnapshot(loadState(), snapshot);
+  let state = mergeOilFromSipEnrichment(mergeOilSnapshot(loadState(), snapshot), loadSipState());
   for (const t of WATCHLIST) {
     if (!state[t]) {
       state[t] = {
@@ -228,9 +273,16 @@ export function renderOptionsIntelLite(containerId, snapshot = {}) {
 
   // Listen for snapshot ready events to merge earnings vol risk from snapshot
   document.addEventListener("specularis:snapshotReady", (e) => {
-    state = mergeOilSnapshot(state, e.detail || {});
+    state = mergeOilFromSipEnrichment(mergeOilSnapshot(state, e.detail || {}), loadSipState());
     saveState(state);
     redraw();
+  });
+
+  document.addEventListener("specularis:sipUpdated", (e) => {
+    state = mergeOilFromSipEnrichment(state, e.detail?.state || loadSipState());
+    saveState(state);
+    redraw();
+    document.dispatchEvent(new CustomEvent("specularis:oilUpdated", { detail: { state } }));
   });
 
   // Persist the auto-hydrated state so other tabs / prompt export can see it.

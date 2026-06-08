@@ -3497,9 +3497,9 @@ async function buildSnapshot(req) {
 
   snapshot.terminalLite = {
     meta: {
-      version: "specularis-market-terminal-lite-v1.3.3",
+      version: "specularis-market-terminal-lite-v1.3.4",
       generatedAt: new Date(generatedAt).toISOString(),
-      dataMode: "auto-intel-v1.3.3-yahoo-fundamentals-options-news-ai",
+      dataMode: "auto-intel-v1.3.4-snapshot-plus-enrichment-api",
       aiMode: envValue("GEMINI_API_KEY") ? "gemini-assisted + human-in-the-loop" : "human-in-the-loop",
       dataQuality: "mixed",
     },
@@ -3546,15 +3546,15 @@ async function buildSnapshot(req) {
         reuters: reutersNews?.status || "unavailable",
         sec: secNews?.status || "unavailable"
       },
-      notes: "v1.3.1 fetches Finnhub + Google News in fast mode; slower RSS/SEC sources remain cache-first."
+      notes: "v1.3.4 uses snapshot news plus async /api/stock-intel-enrichment for per-ticker Yahoo/Google/Finnhub enrichment; slower RSS/SEC sources remain cache-first."
     },
 
     // ── Prompt Export config: static template metadata ──
     promptExport: {
-      version: "v1.3.3",
+      version: "v1.3.4",
       supportedLanguages: ["zh", "en"],
       mode: "human-in-the-loop",
-      note: "Prompts generated client-side. Stock/option intelligence is auto-hydrated from free APIs first; manual input is supplementary only.",
+      note: "Prompts generated client-side. Stock/option intelligence is auto-hydrated from snapshot plus /api/stock-intel-enrichment; manual input is supplementary only.",
       dataStatus: "placeholder",
     },
   };

@@ -53,8 +53,9 @@ function scoreDecision({ sipEntry = {}, oilEntry = {}, kolEntries = [], marketRe
   if (!isPlaceholder) {
     const newsOk = Array.isArray(sipEntry.recentNews) && sipEntry.recentNews.length > 0;
     const analystBull = String(sipEntry.analystTone || "").toLowerCase() === "bullish";
-    if (newsOk && analystBull) catalystScore = 2;
-    else if (newsOk || analystBull) catalystScore = 1;
+    const upsideOk = Number(sipEntry.upsidePct) > 5;
+    if (newsOk && (analystBull || upsideOk)) catalystScore = 2;
+    else if (newsOk || analystBull || upsideOk) catalystScore = 1;
   }
 
   // Options risk/reward
@@ -62,6 +63,8 @@ function scoreDecision({ sipEntry = {}, oilEntry = {}, kolEntries = [], marketRe
   if (oilEntry.preferredStructure && !["avoid","wait"].includes(oilEntry.preferredStructure)) {
     optScore = oilEntry.riskLevel === "low" ? 2 : oilEntry.riskLevel === "medium" ? 1 : 0;
   }
+  if (sipEntry.optionsData?.flowBias === "call_heavy" && ["uptrend","strong_uptrend"].includes(sipEntry.trendStatus)) optScore = Math.max(optScore, 1);
+  if (sipEntry.optionsData?.flowBias === "put_heavy" && Number(sipEntry.dailyChangePercent) < 0) optScore = Math.max(optScore, 1);
 
   // KOL confirmation
   const kolScore = kolEntries.filter((e) =>
@@ -189,7 +192,8 @@ export function renderAIDecisionLayer(containerId, getModuleStates, initialSnaps
     container.classList.remove("is-loading");
     const moduleStates = getModuleStates();
     latestSnapshot = moduleStates.snapshot || latestSnapshot || {};
-    const serverDecisions = getServerDecisions(latestSnapshot);
+    const hasEnrichedSip = Object.values(moduleStates.sipState || {}).some((e) => e?.enrichVersion || e?.optionsData || e?.targetMeanPrice);
+    const serverDecisions = hasEnrichedSip ? null : getServerDecisions(latestSnapshot);
     const decisions = serverDecisions || (() => {
       const { sipState = {}, oilState = {}, kolState = {}, marketRegime = {} } = moduleStates;
       const kolEntries = kolState.entries || [];

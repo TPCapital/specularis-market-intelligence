@@ -1,4 +1,13 @@
 
+
+## v1.3.4 — Auto Intelligence Enrichment
+- Added `/api/stock-intel-enrichment` for async per-ticker enrichment.
+- Added `lib/stock-intel-enricher.js` using Yahoo QuoteSummary, Yahoo Options, Finnhub/Google News fallback.
+- Stock Intelligence Pro now auto-fetches analyst/target/insider/options/news enrichment and manual input only supplements.
+- Options Lite now consumes auto options enrichment from Stock Intelligence Pro.
+- AI Decision Layer recalculates from enriched client data instead of stale server defaults when enrichment is present.
+- Main snapshot remains fast; heavy enrichment is decoupled into a standalone API endpoint.
+
 ## v1.3.3 — Auto Intel Data Source Upgrade
 
 - Stock Intelligence Pro now prioritizes automatic snapshot/API hydration over local manual edits.

@@ -1,6 +1,6 @@
 {
   "name": "specularis-market-terminal-lite",
-  "version": "1.3.3",
+  "version": "1.3.4",
   "description": "AI US Equity Flow Terminal — Specularis Market Terminal Lite. Static HTML + Vercel serverless functions. No bundler required.",
   "type": "module",
   "engines": {

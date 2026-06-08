@@ -35,6 +35,63 @@ function saveState(state) {
     localStorage.setItem(SIP_STORAGE_KEY, JSON.stringify(state));
   } catch {}
 }
+// v1.3.4: 自动从 /api/stock-intel-enrichment 拉取增强数据
+async function fetchEnrichmentData(tickers) {
+  const url = '/api/stock-intel-enrichment?tickers=' + tickers.join(',');
+  try {
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw new Error('http_' + res.status);
+    return await res.json();
+  } catch (err) {
+    console.warn('[SIP v1.3.4] enrichment fetch failed:', err?.message);
+    return null;
+  }
+}
+
+// v1.3.4: 将增强数据合并到 SIP state
+function applyEnrichmentToSipState(state, enrichPayload) {
+  if (!enrichPayload?.data) return state;
+  const out = { ...state };
+  for (const ticker of WATCHLIST) {
+    const r = enrichPayload.data[ticker];
+    if (!r) continue;
+    const entry = out[ticker] || {};
+    const e = r.enrichment, o = r.options, n = r.news;
+    if (!e || e.status === 'unavailable') continue;
+    if (e.analystTone && e.analystTone !== 'unavailable') {
+      entry.analystTone = e.analystTone;
+      entry.analystCount = e.analystCount;
+      entry.targetMeanPrice = e.targetMeanPrice;
+      entry.upsidePct = e.upsidePct;
+      entry.recentUpgrades = e.recentUpgrades || [];
+    }
+    if (e.institutionalSignal && e.institutionalSignal !== 'unavailable') {
+      entry.institutionalSignal = e.institutionalSignal;
+      entry.instActivity = e.instActivity;
+    }
+    if (e.insiderSignal) { entry.insiderSignal = e.insiderSignal; entry.insiderBuys = e.insiderBuys; entry.insiderSells = e.insiderSells; }
+    if (e.earningsDate && !entry.earningsDate) entry.earningsDate = e.earningsDate;
+    if (e.keySupport != null) entry.keySupport = e.keySupport;
+    if (e.keyResistance != null) entry.keyResistance = e.keyResistance;
+    entry.week52High = e.week52High;
+    entry.week52Low = e.week52Low;
+    if (e.tradeRelevance) entry.tradeRelevance = e.tradeRelevance;
+    if (n && n.length > 0) entry.recentNews = n;
+    if (o?.status === 'delayed') entry.optionsData = { pcrVol: o.pcrVol, pcrOI: o.pcrOI, avgIV: o.avgIV, flowBias: o.flowBias, callWallStrike: o.callWallStrike, putWallStrike: o.putWallStrike, expiration: o.expiration };
+    const rf = new Set(entry.riskFlags || []);
+    if (e.beta > 1.5) rf.add('high_beta');
+    if (o?.avgIV > 55) rf.add('high_iv');
+    if (e.earningsDate) rf.add('earnings_event');
+    if (e.analystTone === 'bearish') rf.add('analyst_bearish');
+    if (o?.flowBias === 'put_heavy') rf.add('put_flow');
+    entry.riskFlags = [...rf];
+    if (!entry.dataStatus || entry.dataStatus === 'placeholder') entry.dataStatus = 'proxy';
+    entry.enrichVersion = enrichPayload.version || 'v1.3.4';
+    out[ticker] = entry;
+  }
+  return out;
+}
+
 
 // Merge live snapshot data into SIP state.
 // Merge snapshot data into SIP state.
@@ -192,9 +249,12 @@ function renderStockCard(ticker, entry) {
   <div class="sip-levels">
     <div><span class="sip-meta-label">支撑</span> <span>${escHtml(entry.keySupport || "--")}</span></div>
     <div><span class="sip-meta-label">压力</span> <span>${escHtml(entry.keyResistance || "--")}</span></div>
-    <div><span class="sip-meta-label">分析师</span> <span>${escHtml(entry.analystTone || "--")}</span></div>
-    <div><span class="sip-meta-label">机构</span> <span>${escHtml(entry.institutionalSignal || "--")}</span></div>
-    <div><span class="sip-meta-label">内部人</span> <span>${escHtml(entry.insiderSignal || "--")}</span></div>
+    ${entry.targetMeanPrice ? '<div><span class="sip-meta-label">目标价</span> <span>$' + escHtml(entry.targetMeanPrice) + (entry.upsidePct != null ? ' (+' + escHtml(entry.upsidePct) + '%)' : '') + '</span></div>' : ''}
+    ${entry.week52High && entry.week52Low ? '<div><span class="sip-meta-label">52W</span> <span>$' + escHtml(entry.week52Low) + '–$' + escHtml(entry.week52High) + '</span></div>' : ''}
+    <div><span class="sip-meta-label">分析师</span> <span>${escHtml(entry.analystTone || "--")}  ${entry.analystCount ? '(' + entry.analystCount + '家)' : ''}</span></div>
+    <div><span class="sip-meta-label">机构</span> <span>${escHtml(entry.institutionalSignal || "--")}${entry.instActivity ? ' · ' + escHtml(entry.instActivity) : ''}</span></div>
+    <div><span class="sip-meta-label">内部人</span> <span>${escHtml(entry.insiderSignal || "--")}${entry.insiderBuys != null ? ' (买' + entry.insiderBuys + '/卖' + (entry.insiderSells||0) + ')' : ''}</span></div>
+    ${entry.optionsData ? '<div><span class="sip-meta-label">期权流</span> <span>PCR:${escHtml(entry.optionsData.pcrVol||"--")} ${entry.optionsData.flowBias === "call_heavy" ? "偏Call" : entry.optionsData.flowBias === "put_heavy" ? "偏Put" : "中性"}${entry.optionsData.avgIV ? " IV:"+escHtml(entry.optionsData.avgIV)+"%" : ""}</span></div>' : ''}
   </div>
   ${summaryHtml}
   ${newsHtml}
@@ -322,9 +382,35 @@ export function renderStockIntelPro(containerId, snapshot = {}) {
     container.innerHTML = `
       <div class="sip-disclaimer">
         ⚠️ 仅供研究 · For research only, not financial advice.
-        <span class="sip-mode-label">📡 Live Intel Mode — 自动情报优先，手动仅补充 / Auto Intel First</span>
+        <span class="sip-mode-label">📡 v1.3.4 Auto-Intel — Yahoo 分析师+期权+内部人 全自动</span>
+      </div>
+      <div class="sip-toolbar" style="margin:8px 0;display:flex;align-items:center;gap:10px">
+        <button class="sip-save-btn" id="sipAutoRefreshBtn" style="font-size:12px;padding:4px 12px">🔄 自动获取（分析师/期权/内部人/新闻）</button>
+        <span class="sip-muted" id="sipRefreshStatus" style="font-size:11px"></span>
       </div>
       <div class="sip-grid">${cards}</div>`;
+
+    // v1.3.4: 自动刷新按钮
+    document.getElementById("sipAutoRefreshBtn")?.addEventListener("click", async () => {
+      const btn = document.getElementById("sipAutoRefreshBtn");
+      const status = document.getElementById("sipRefreshStatus");
+      if (btn) btn.disabled = true;
+      if (status) status.textContent = "正在获取数据...";
+      const payload = await fetchEnrichmentData(WATCHLIST);
+      if (payload) {
+        state = applyEnrichmentToSipState(state, payload);
+        saveState(state);
+        document.dispatchEvent(new CustomEvent("specularis:sipUpdated", { detail: { state } }));
+        redraw();
+        setTimeout(() => {
+          const s2 = document.getElementById("sipRefreshStatus");
+          if (s2) s2.textContent = "✓ 数据已更新 " + new Date().toLocaleTimeString("zh-CN", {hour:"2-digit",minute:"2-digit"});
+        }, 100);
+      } else {
+        if (status) status.textContent = "获取失败，请稍后重试";
+      }
+      if (btn) btn.disabled = false;
+    });
 
     container.querySelectorAll(".sip-edit-btn").forEach((btn) => {
       btn.addEventListener("click", () => {
@@ -341,6 +427,17 @@ export function renderStockIntelPro(containerId, snapshot = {}) {
   }
 
   redraw();
+
+  // v1.3.4: 页面加载后2秒自动触发一次增强数据拉取
+  setTimeout(async () => {
+    const payload = await fetchEnrichmentData(WATCHLIST);
+    if (payload) {
+      state = applyEnrichmentToSipState(state, payload);
+      saveState(state);
+      document.dispatchEvent(new CustomEvent("specularis:sipUpdated", { detail: { state } }));
+      redraw();
+    }
+  }, 2500);
 
   // Listen for snapshot refresh events.
   document.addEventListener("specularis:snapshotReady", (e) => {
