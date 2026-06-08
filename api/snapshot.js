@@ -755,6 +755,125 @@ async function fetchYahooChartIndex(providerSymbol, indexId) {
   };
 }
 
+
+function avgFinite(values = []) {
+  const nums = values.map(Number).filter((v) => Number.isFinite(v) && v > 0);
+  if (!nums.length) return null;
+  return nums.reduce((a, b) => a + b, 0) / nums.length;
+}
+
+function sumFinite(values = []) {
+  return values.map(Number).filter((v) => Number.isFinite(v) && v > 0).reduce((a, b) => a + b, 0);
+}
+
+async function fetchYahooQuoteSummaryLite(symbol) {
+  const modules = [
+    "price",
+    "summaryDetail",
+    "financialData",
+    "defaultKeyStatistics",
+    "recommendationTrend",
+    "calendarEvents",
+    "assetProfile",
+    "earningsTrend",
+    "upgradeDowngradeHistory"
+  ].join(",");
+  const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${encodeURIComponent(modules)}`;
+  try {
+    const payload = await fetchJsonWithDebug("YAHOO_QUOTE_SUMMARY", url, { timeoutMs: 2800 });
+    const row = payload?.quoteSummary?.result?.[0];
+    if (!row) return { symbol, status: "unavailable", error: "no_result" };
+    const financial = row.financialData || {};
+    const summary = row.summaryDetail || {};
+    const stats = row.defaultKeyStatistics || {};
+    const trend = row.recommendationTrend?.trend?.[0] || {};
+    const calendar = row.calendarEvents || {};
+    const upgrades = row.upgradeDowngradeHistory?.history || [];
+    const targetMean = Number(financial.targetMeanPrice?.raw ?? financial.targetMedianPrice?.raw ?? NaN);
+    const currentPrice = Number(row.price?.regularMarketPrice?.raw ?? financial.currentPrice?.raw ?? NaN);
+    const recommendationKey = financial.recommendationKey || null;
+    const recScore = Number(financial.recommendationMean?.raw ?? NaN);
+    const analystTone = recommendationKey
+      ? String(recommendationKey)
+      : Number.isFinite(recScore) ? (recScore <= 2 ? "bullish" : recScore <= 3 ? "neutral" : "bearish") : "unavailable";
+    return {
+      symbol,
+      status: "delayed",
+      dataStatus: "delayed",
+      source: "Yahoo QuoteSummary unofficial",
+      currentPrice: Number.isFinite(currentPrice) ? currentPrice : null,
+      targetMeanPrice: Number.isFinite(targetMean) ? targetMean : null,
+      beta: Number(stats.beta?.raw ?? summary.beta?.raw ?? NaN),
+      marketCap: Number(summary.marketCap?.raw ?? row.price?.marketCap?.raw ?? NaN),
+      peRatio: Number(summary.trailingPE?.raw ?? NaN),
+      forwardPE: Number(summary.forwardPE?.raw ?? NaN),
+      dividendYield: Number(summary.dividendYield?.raw ?? NaN),
+      analystTone,
+      recommendationMean: Number.isFinite(recScore) ? recScore : null,
+      recommendationTrend: trend,
+      earningsDate: Array.isArray(calendar.earnings?.earningsDate) && calendar.earnings.earningsDate[0]?.fmt ? calendar.earnings.earningsDate[0].fmt : null,
+      sector: row.assetProfile?.sector || null,
+      industry: row.assetProfile?.industry || null,
+      upgradeDowngrade: upgrades.slice(0, 3).map((u) => ({
+        firm: u.firm,
+        action: u.action,
+        toGrade: u.toGrade,
+        fromGrade: u.fromGrade,
+        epoch: u.epochGradeDate
+      })),
+      fetchedAt: Date.now()
+    };
+  } catch (error) {
+    return { symbol, status: "unavailable", dataStatus: "unavailable", source: "Yahoo QuoteSummary unofficial", error: error?.message || String(error) };
+  }
+}
+
+async function fetchYahooOptionsLite(symbol) {
+  const url = `https://query2.finance.yahoo.com/v7/finance/options/${encodeURIComponent(symbol)}`;
+  try {
+    const payload = await fetchJsonWithDebug("YAHOO_OPTIONS", url, { timeoutMs: 2800 });
+    const result = payload?.optionChain?.result?.[0];
+    const optionBlock = result?.options?.[0];
+    if (!result || !optionBlock) return { symbol, status: "unavailable", error: "no_option_chain" };
+    const calls = optionBlock.calls || [];
+    const puts = optionBlock.puts || [];
+    const callVolume = sumFinite(calls.map((c) => c.volume));
+    const putVolume = sumFinite(puts.map((p) => p.volume));
+    const callOpenInterest = sumFinite(calls.map((c) => c.openInterest));
+    const putOpenInterest = sumFinite(puts.map((p) => p.openInterest));
+    const callIv = avgFinite(calls.map((c) => c.impliedVolatility));
+    const putIv = avgFinite(puts.map((p) => p.impliedVolatility));
+    const avgIv = avgFinite([callIv, putIv]);
+    const putCallVolumeRatio = callVolume > 0 ? putVolume / callVolume : null;
+    const putCallOiRatio = callOpenInterest > 0 ? putOpenInterest / callOpenInterest : null;
+    const expiration = optionBlock.expirationDate ? new Date(Number(optionBlock.expirationDate) * 1000).toISOString().slice(0, 10) : null;
+    let flowBias = "neutral";
+    if (putCallVolumeRatio != null && putCallVolumeRatio >= 1.25) flowBias = "put_heavy";
+    else if (putCallVolumeRatio != null && putCallVolumeRatio <= 0.75) flowBias = "call_heavy";
+    return {
+      symbol,
+      status: "delayed",
+      dataStatus: "delayed",
+      source: "Yahoo Options unofficial",
+      expiration,
+      callVolume,
+      putVolume,
+      callOpenInterest,
+      putOpenInterest,
+      putCallVolumeRatio,
+      putCallOiRatio,
+      avgIv,
+      callIv,
+      putIv,
+      flowBias,
+      contractsSampled: calls.length + puts.length,
+      fetchedAt: Date.now()
+    };
+  } catch (error) {
+    return { symbol, status: "unavailable", dataStatus: "unavailable", source: "Yahoo Options unofficial", error: error?.message || String(error) };
+  }
+}
+
 async function fetchStooqIndex(providerSymbol, indexId) {
   const response = await fetch(`https://stooq.com/q/l/?s=${encodeURIComponent(providerSymbol)}&f=sd2t2ohlcvp&h&e=csv`, {
     cache: "no-store",
@@ -3169,8 +3288,9 @@ async function buildSnapshot(req) {
   const TL_WATCHLIST = TERMINAL_LITE_WATCHLIST;
 
   // Helper: build a stock intel entry from available snapshot data for one ticker.
-  function buildTLStockEntry(ticker, quotesMap, earningsEvents, insiderSignals, newsItems = [], rvMap = new Map(), sectorHeatRows = []) {
+  function buildTLStockEntry(ticker, quotesMap, earningsEvents, insiderSignals, newsItems = [], rvMap = new Map(), sectorHeatRows = [], enrichMap = new Map()) {
     const q = quotesMap.get(ticker);
+    const enrich = enrichMap.get(ticker) || {};
     const earnEntry = (earningsEvents || []).find(e => e?.symbol === ticker || e?.ticker === ticker);
     const insiderRows = (insiderSignals || []).filter(s => s?.symbol === ticker || s?.ticker === ticker);
     const insiderNet = insiderRows.length > 0
@@ -3187,13 +3307,14 @@ async function buildSnapshot(req) {
     const trendStatus = hasPrice && Number.isFinite(change)
       ? change >= 3 ? "strong_uptrend" : change > 0.8 ? "uptrend" : change <= -3 ? "strong_downtrend" : change < -0.8 ? "downtrend" : "sideways"
       : "placeholder";
+    const companyName = (symbolMeta[ticker]?.[0] || ticker).toUpperCase();
     const relatedNews = (newsItems || []).filter(n => {
       const symbols = [n?.symbol, n?.ticker, ...(Array.isArray(n?.relatedTickers) ? n.relatedTickers : [])]
         .filter(Boolean).map(x => String(x).toUpperCase());
       if (symbols.includes(ticker)) return true;
       const text = `${n?.title || ""} ${n?.summary || ""} ${n?.headline || ""} ${n?.reason || ""} ${n?.chineseSummary || ""}`.toUpperCase();
-      return text.includes(ticker);
-    }).slice(0, 3).map(n => ({
+      return text.includes(ticker) || text.includes(companyName.split(" ")[0]);
+    }).slice(0, 4).map(n => ({
       title: n.title || n.headline || n.reason || n.chineseSummary || String(n).slice(0, 140),
       summary: n.summary || n.chineseSummary || n.reason || null,
       source: n.source || n.provider || n.catalystType || "news",
@@ -3205,15 +3326,21 @@ async function buildSnapshot(req) {
     const keySupport = price ? Number((price * 0.97).toFixed(2)) : null;
     const keyResistance = price ? Number((price * 1.04).toFixed(2)) : null;
     const dataStatus = hasPrice ? (q.dataQuality === "live" || q.status === "live" ? "live" : q.dataQuality === "delayed" || q.status === "delayed" ? "delayed" : "proxy") : "placeholder";
+    const analystTone = enrich.analystTone && enrich.analystTone !== "unavailable" ? enrich.analystTone : "unavailable";
+    const institutionalSignal = enrich.targetMeanPrice && price ? (enrich.targetMeanPrice > price * 1.08 ? "target_upside" : enrich.targetMeanPrice < price * 0.95 ? "target_downside" : "neutral_target") : "unavailable";
+    const valuationFlags = [];
+    if (Number.isFinite(enrich.beta) && enrich.beta > 1.4) valuationFlags.push("high_beta");
+    if (enrich.targetMeanPrice && price) valuationFlags.push(`target:${Number(enrich.targetMeanPrice).toFixed(2)}`);
     const riskFlags = [];
     if (Number.isFinite(change) && change <= -4) riskFlags.push("price_pressure");
     if (Number.isFinite(change) && change >= 5) riskFlags.push("chasing_risk");
-    if (earnEntry) riskFlags.push("earnings_event");
+    if (earnEntry || enrich.earningsDate) riskFlags.push("earnings_event");
+    riskFlags.push(...valuationFlags);
     return {
       ticker,
       currentPrice: price,
       dailyChangePercent: Number.isFinite(change) ? Number(change.toFixed(2)) : null,
-      earningsDate: earnEntry?.reportDate || earnEntry?.date || null,
+      earningsDate: earnEntry?.reportDate || earnEntry?.date || enrich.earningsDate || null,
       insiderSignal: insiderNet,
       dataStatus,
       trendStatus,
@@ -3222,25 +3349,38 @@ async function buildSnapshot(req) {
       keySupport,
       keyResistance,
       recentNews: relatedNews,
-      analystTone: "placeholder",
-      institutionalSignal: "placeholder",
+      analystTone,
+      institutionalSignal,
       aiSummary: hasPrice
-        ? `${ticker} 已接入免费/延迟行情。当前为 ${trendStatus}，涨跌幅 ${Number.isFinite(change) ? change.toFixed(2) : "--"}%。${isProxyRvol ? "成交量为 RVOL Proxy，不能当真实放量。" : "成交量为真实/可用数据。"}${relatedNews.length ? `已匹配 ${relatedNews.length} 条新闻/催化。` : "暂无匹配新闻。"}仍需确认财报与期权风险。`
-        : "等待免费行情或手动输入后生成分析摘要。",
+        ? `${ticker} 已接入自动行情 + 新闻 + Yahoo 基本面增强。当前为 ${trendStatus}，涨跌幅 ${Number.isFinite(change) ? change.toFixed(2) : "--"}%。${isProxyRvol ? "成交量为 RVOL Proxy，不能当真实放量。" : "成交量为真实/可用数据。"}${relatedNews.length ? `已匹配 ${relatedNews.length} 条新闻/催化。` : "暂无匹配新闻。"}${enrich.targetMeanPrice ? ` Yahoo 分析师均价目标约 ${Number(enrich.targetMeanPrice).toFixed(2)}。` : ""}仍需确认财报与期权风险。`
+        : "等待免费行情或自动源恢复后生成分析摘要。",
       riskFlags,
       tradeRelevance: hasPrice ? (Number.isFinite(change) && change > 1 ? "watch" : Number.isFinite(change) && change < -5 ? "avoid" : "watch") : "watch",
-      source: hasPrice ? (q.source || "Market Data Adapter") : "placeholder",
+      source: hasPrice ? `${q.source || "Market Data Adapter"} + Yahoo QuoteSummary` : "placeholder",
+      yahooFundamentals: enrich.status === "delayed" ? enrich : null,
       lastUpdated: hasPrice ? (q.timestamp || generatedAt) : null,
     };
   }
 
-  function buildTLOptionsEntry(ticker, quoteMap, optionsCards = [], earnEntry = null) {
+  function buildTLOptionsEntry(ticker, quoteMap, optionsCards = [], earnEntry = null, optionChainMap = new Map()) {
     const q = quoteMap.get(ticker);
     const card = (optionsCards || []).find(c => c?.symbol === ticker || c?.ticker === ticker);
+    const chain = optionChainMap.get(ticker) || {};
     const change = Number(q?.preMarketChangePercent ?? q?.regularMarketChangePercent ?? q?.change ?? 0);
     let preferredStructure = "wait";
     let riskLevel = "medium";
-    let reason = "Options Lite Mode — 未接入真实 IV/GEX/期权链，基于正股走势、市场环境与代理信号。";
+    let reason = "Options Auto Lite — 优先使用 Yahoo Options 免费/非官方期权链；失败时回退到正股走势与代理信号。";
+    if (chain?.status === "delayed") {
+      if (chain.flowBias === "put_heavy") {
+        preferredStructure = "put_spread";
+        riskLevel = "medium_high";
+        reason = `Yahoo Options 显示 Put/Call 量比约 ${Number(chain.putCallVolumeRatio || 0).toFixed(2)}，偏 PUT/对冲观察；仍非 GEX/大单流。`;
+      } else if (chain.flowBias === "call_heavy") {
+        preferredStructure = "call_spread";
+        riskLevel = "medium";
+        reason = `Yahoo Options 显示 Put/Call 量比约 ${Number(chain.putCallVolumeRatio || 0).toFixed(2)}，偏 CALL 观察；优先价差控制 IV 风险。`;
+      }
+    }
     if (card?.bucket === "PUT" || card?.direction?.includes?.("PUT")) {
       preferredStructure = "put_spread";
       riskLevel = "medium_high";
@@ -3260,21 +3400,22 @@ async function buildSnapshot(req) {
     return {
       ticker,
       optionDataStatus: "lite-mode",
-      ivStatus: "unavailable",
+      ivStatus: chain?.avgIv ? `avg_iv_${Number(chain.avgIv * 100).toFixed(1)}%` : "unavailable",
       earningsVolRisk: Boolean(earnEntry),
       preferredStructure,
       reason,
       invalidationCondition: card?.invalidation || "QQQ/SPY/VIX 与正股方向背离时降权或回避。",
       riskLevel,
-      notes: "免费版不接入真实期权大单流；这里是代理判断，不是 GEX/flow。",
-      dataStatus: q ? (q.dataQuality === "live" || q.status === "live" ? "live" : q.dataQuality === "delayed" || q.status === "delayed" ? "delayed" : "proxy") : "placeholder",
-      source: card ? "existing_options_signal_proxy" : "stock_proxy",
+      notes: chain?.status === "delayed" ? `Yahoo Options: exp=${chain.expiration || "n/a"}, CVol=${chain.callVolume || 0}, PVol=${chain.putVolume || 0}, PCR=${chain.putCallVolumeRatio != null ? Number(chain.putCallVolumeRatio).toFixed(2) : "n/a"}. 非官方免费数据，不能等同 Unusual Flow/GEX。` : "免费版不接入真实期权大单流；这里是代理判断，不是 GEX/flow。",
+      dataStatus: chain?.status === "delayed" ? "delayed" : (q ? (q.dataQuality === "live" || q.status === "live" ? "live" : q.dataQuality === "delayed" || q.status === "delayed" ? "delayed" : "proxy") : "placeholder"),
+      source: chain?.status === "delayed" ? "Yahoo Options unofficial" : (card ? "existing_options_signal_proxy" : "stock_proxy"),
+      yahooOptions: chain?.status === "delayed" ? chain : null,
       _future_gammaWall: null,
       _future_callWall: null,
       _future_putWall: null,
-      _future_ivRank: null,
+      _future_ivRank: chain?.avgIv || null,
       _future_skew: null,
-      _future_openInterest: null,
+      _future_openInterest: chain?.callOpenInterest || chain?.putOpenInterest ? { callOpenInterest: chain.callOpenInterest, putOpenInterest: chain.putOpenInterest } : null,
       _future_unusualOptionsFlow: null,
     };
   }
@@ -3331,12 +3472,16 @@ async function buildSnapshot(req) {
       source: "existing_risk_regime",
       dataStatus: snapshot.riskRegime?.mode ? "delayed" : "placeholder",
     };
+  const tlFundamentalRows = await Promise.all(TL_WATCHLIST.map((ticker) => fetchYahooQuoteSummaryLite(ticker)));
+  const tlFundamentalMap = new Map(tlFundamentalRows.map((row) => [row.symbol, row]));
+  const tlOptionRows = await Promise.all(TL_WATCHLIST.map((ticker) => fetchYahooOptionsLite(ticker)));
+  const tlOptionMap = new Map(tlOptionRows.map((row) => [row.symbol, row]));
   const tlStockIntel = TL_WATCHLIST.map(ticker =>
-      buildTLStockEntry(ticker, tlQuoteMap, tlEarnings, tlInsider, tlNewsItems, tlRvMap, snapshot.sectorHeat?.strongestSectors || [])
+      buildTLStockEntry(ticker, tlQuoteMap, tlEarnings, tlInsider, tlNewsItems, tlRvMap, snapshot.sectorHeat?.strongestSectors || [], tlFundamentalMap)
     );
   const tlOptionsLite = TL_WATCHLIST.map(ticker => {
       const earnEntry = tlEarnings.find(e => e?.symbol === ticker || e?.ticker === ticker);
-      return buildTLOptionsEntry(ticker, tlQuoteMap, tlOptionCards, earnEntry);
+      return buildTLOptionsEntry(ticker, tlQuoteMap, tlOptionCards, earnEntry, tlOptionMap);
     });
   const tlDecisionLayer = TL_WATCHLIST.map(ticker =>
       buildTLDecisionEntry(ticker, tlStockIntel.find(x => x.ticker === ticker), tlOptionsLite.find(x => x.ticker === ticker), tlMarketRegimeSummary)
@@ -3352,9 +3497,9 @@ async function buildSnapshot(req) {
 
   snapshot.terminalLite = {
     meta: {
-      version: "specularis-market-terminal-lite-v1.3.2",
+      version: "specularis-market-terminal-lite-v1.3.3",
       generatedAt: new Date(generatedAt).toISOString(),
-      dataMode: "free-lite-auto-hydration-news-ai-frontend-sync-v1.3.2",
+      dataMode: "auto-intel-v1.3.3-yahoo-fundamentals-options-news-ai",
       aiMode: envValue("GEMINI_API_KEY") ? "gemini-assisted + human-in-the-loop" : "human-in-the-loop",
       dataQuality: "mixed",
     },
@@ -3406,10 +3551,10 @@ async function buildSnapshot(req) {
 
     // ── Prompt Export config: static template metadata ──
     promptExport: {
-      version: "v1.3.2",
+      version: "v1.3.3",
       supportedLanguages: ["zh", "en"],
       mode: "human-in-the-loop",
-      note: "Prompts generated client-side. No OpenAI/Anthropic API called from server.",
+      note: "Prompts generated client-side. Stock/option intelligence is auto-hydrated from free APIs first; manual input is supplementary only.",
       dataStatus: "placeholder",
     },
   };

@@ -131,14 +131,13 @@ function renderEditModal(ticker, entry) {
 }
 
 // Merge snapshot terminalLite.optionsIntelligenceLite into state.
-// Manual localStorage entries take priority over snapshot defaults.
+// Snapshot auto data takes priority; manual edits are only supplementary notes.
 function mergeOilSnapshot(state, snapshot = {}) {
   const tlEntries = snapshot?.terminalLite?.optionsIntelligenceLite || [];
   const tlMap = new Map(tlEntries.map((e) => [e.ticker, e]));
   for (const ticker of WATCHLIST) {
     if (!state[ticker]) state[ticker] = {};
-    const manual = state[ticker].dataStatus === "manual";
-    if (manual) continue;
+    const manual = false; // v1.3.3: do not let old localStorage manual data block live API hydration.
     const tl = tlMap.get(ticker);
     if (tl) {
       state[ticker] = {
@@ -169,7 +168,7 @@ export function renderOptionsIntelLite(containerId, snapshot = {}) {
         ivStatus: "placeholder",
         earningsVolRisk: false,
         riskLevel: "medium",
-        reason: "免费版 Lite Mode — 未接入真实 IV / GEX 数据。基于价格动量与市场环境生成代理信号。",
+        reason: "Options Auto Lite — 未接入真实 IV / GEX 数据。基于价格动量与市场环境生成代理信号。",
         invalidationCondition: "",
         notes: "未来升级付费 API 后可接入: GammaWall / CallWall / PutWall / IV Rank / Skew / OI / 异常大单。",
         dataStatus: "placeholder",
@@ -213,7 +212,8 @@ export function renderOptionsIntelLite(containerId, snapshot = {}) {
             reason: document.getElementById("oilF-reason").value.trim(),
             invalidationCondition: document.getElementById("oilF-invalid").value.trim(),
             notes: document.getElementById("oilF-notes").value.trim(),
-            dataStatus: "manual",
+            manualNote: true,
+            dataStatus: state[ticker]?.dataStatus && state[ticker].dataStatus !== "placeholder" ? state[ticker].dataStatus : "manual",
           };
           saveState(state);
           document.dispatchEvent(new CustomEvent("specularis:oilUpdated", { detail: { state } }));

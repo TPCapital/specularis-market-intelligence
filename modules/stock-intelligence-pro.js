@@ -38,7 +38,7 @@ function saveState(state) {
 
 // Merge live snapshot data into SIP state.
 // Merge snapshot data into SIP state.
-// Priority: localStorage manual entries > snapshot data > placeholder defaults.
+// Priority: snapshot auto data > optional manual notes. Manual edits no longer block live snapshot hydration.
 // Reads from snapshot.terminalLite.stockIntelligencePro (new schema) with
 // fallback to snapshot.marketData.quotes (existing schema) for backward compat.
 function mergeSnapshotData(state, snapshot = {}) {
@@ -59,16 +59,15 @@ function mergeSnapshotData(state, snapshot = {}) {
 
   for (const ticker of WATCHLIST) {
     if (!state[ticker]) state[ticker] = {};
-    const manual = state[ticker].dataStatus === "manual";
+    const manual = false; // v1.3.3: snapshot data always hydrates core fields; manual edits are annotations only.
 
     // terminalLite entry (preferred)
     const tl = tlMap.get(ticker);
     // legacy quote entry
     const q = quoteMap.get(ticker);
 
-    // Only update price/change if NOT manually set by user
-    if (!manual) {
-      if (tl?.currentPrice != null) {
+    // Always update core market/intelligence fields from snapshot when available.
+    if (tl?.currentPrice != null) {
         state[ticker].currentPrice = tl.currentPrice;
         state[ticker].dailyChangePercent = tl.dailyChangePercent ?? state[ticker].dailyChangePercent;
         state[ticker].dataStatus = tl.dataStatus || "delayed";
@@ -86,7 +85,6 @@ function mergeSnapshotData(state, snapshot = {}) {
         state[ticker].dailyChangePercent = q.preMarketChange ?? q.changePercent ?? state[ticker].dailyChangePercent;
         state[ticker].dataStatus = q.dataQuality === "live" || q.status === "live" ? "live" : "delayed";
       }
-    }
 
     // Earnings date: terminalLite first, then legacy
     if (!state[ticker].earningsDate) {
@@ -97,7 +95,7 @@ function mergeSnapshotData(state, snapshot = {}) {
     }
 
     // Insider signal: only fill if not manually set
-    if (!manual && !state[ticker].insiderSignal) {
+    if (!state[ticker].insiderSignal || tl?.insiderSignal) {
       const signal = tl?.insiderSignal || null;
       if (signal) {
         state[ticker].insiderSignal = signal;
@@ -297,8 +295,9 @@ function openEditModal(ticker, state, onSave) {
       recentNews: newsRaw ? newsRaw.split("\n").map((l) => l.trim()).filter(Boolean) : [],
       riskFlags: riskRaw ? riskRaw.split(",").map((l) => l.trim()).filter(Boolean) : [],
       aiSummary: document.getElementById("sipF-summary").value.trim() || null,
-      dataStatus: "manual",
-      lastUpdated: new Date().toISOString(),
+      manualNote: true,
+      dataStatus: (state[ticker]?.dataStatus && state[ticker].dataStatus !== "placeholder") ? state[ticker].dataStatus : "manual",
+      manualUpdatedAt: new Date().toISOString(),
     };
     onSave(ticker, updated);
     close();
@@ -323,7 +322,7 @@ export function renderStockIntelPro(containerId, snapshot = {}) {
     container.innerHTML = `
       <div class="sip-disclaimer">
         ⚠️ 仅供研究 · For research only, not financial advice.
-        <span class="sip-mode-label">📡 Lite Mode — 自动数据 + 手动覆盖 / Auto Data + Manual Override</span>
+        <span class="sip-mode-label">📡 Live Intel Mode — 自动情报优先，手动仅补充 / Auto Intel First</span>
       </div>
       <div class="sip-grid">${cards}</div>`;
 

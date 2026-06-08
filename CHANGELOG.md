@@ -1,4 +1,14 @@
 
+## v1.3.3 — Auto Intel Data Source Upgrade
+
+- Stock Intelligence Pro now prioritizes automatic snapshot/API hydration over local manual edits.
+- Added Yahoo QuoteSummary unofficial enrichment for analyst tone, target price, beta, market cap, PE, earnings date, sector/industry.
+- Added Yahoo Options unofficial Lite chain snapshot for put/call volume ratio, open interest proxy, average IV proxy, and expiration.
+- Options Lite now uses Yahoo Options where available before falling back to price/news proxy signals.
+- Manual edits are now supplementary notes and no longer block automatic data refresh.
+- Maintains research-only disclaimers and does not fabricate GEX, IV Rank, or unusual-options-flow.
+
+
 ## v1.3.2 — Frontend Snapshot Sync + Auto Data Rendering Fix
 
 - Fixed Terminal Lite front-end modules staying on placeholder/manual localStorage state.
