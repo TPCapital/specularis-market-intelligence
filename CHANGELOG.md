@@ -1,5 +1,38 @@
 # Changelog
 
+## v1.3 — Free News + Gemini AI Summary Layer
+
+- Added `GEMINI_API_KEY` environment detection in `/api/snapshot`.
+- Added optional Gemini API summary layer under `terminalLite.geminiSummary`.
+- Added Google News RSS fallback under `sources.googleNews`.
+- Added `terminalLite.newsSourceStatus` to expose which free news source is working.
+- Upgraded Terminal Lite metadata to `specularis-market-terminal-lite-v1.3`.
+- Added a Gemini AI Summary card in the prompt export module when server-side summary is available.
+- Preserved Human-in-the-Loop workflow: Gemini summarizes; GPT/Claude/user still make final judgment.
+- No fabricated GEX, IV rank, option flow, insider, 13F, or X/Grok data.
+
+## v1.2.1 — Signal Integrity Patch
+
+- Prevented legacy `tradeDecision` from showing `A+` targets when the market gate says `NO TRADE` / `禁止交易`.
+- Downgraded blocked trade targets to `HEDGE WATCH` or `WATCH` to avoid conflicting signals.
+- Marked missing-volume RVOL values as `RVOL_PROXY` instead of real `RVOL_EXPANSION`.
+- Added `relativeVolumeStatus`, `volumeStatus`, and stricter proxy scoring for volume-derived layers.
+- Updated Terminal Lite status labels from broad `cached` to clearer `live` / `delayed` / `proxy` / `placeholder`.
+- Kept Options Lite honest: no fabricated IV, GEX, option flow, open interest, or X/Grok data.
+
+
+## v1.2 — Free Data Auto-Hydration Upgrade
+
+- Added Terminal Lite watchlist symbols to default snapshot universe: MU, MRVL, NVDA, AVGO, AMD, TSM, ASML, PLTR, ORCL, SMCI.
+- Added Yahoo Chart free/delayed stock fallback for Terminal Lite watchlist in fast mode.
+- Upgraded `terminalLite.meta.version` to `specularis-market-terminal-lite-v1.2`.
+- Stock Intelligence Pro can now hydrate price/change/trend/support/resistance from free/delayed snapshot data when available.
+- Options Intelligence Lite now merges server-side proxy/lite fields instead of staying fully manual.
+- AI Decision Layer receives computed-lite server fields and clearer waiting-data behavior.
+- Still no paid API, no automatic X scraping, no fabricated GEX/IV/unusual options flow.
+
+
+
 ## v6.14 — Vercel 部署修复
 - 移除 package.json 中的 `"private": true`（Vercel schema 报错）
 

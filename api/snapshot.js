@@ -25,6 +25,8 @@ const MARKET_SYMBOLS = {
   BRENT: "BZ=F"  // Brent 原油 — Yahoo Chart / Stooq 兜底
 };
 
+const TERMINAL_LITE_WATCHLIST = ["MU","MRVL","NVDA","AVGO","AMD","TSM","ASML","PLTR","ORCL","SMCI"];
+
 const sourceCatalog = {
   finnhub: "Finnhub",
   twelveData: "TwelveData",
@@ -56,7 +58,9 @@ const sourceCatalog = {
   finnhubNews: "Finnhub News",
   marketWatchNews: "MarketWatch RSS",
   reutersNews: "Reuters RSS",
-  secNews: "SEC Filing Feed"
+  googleNews: "Google News RSS",
+  secNews: "SEC Filing Feed",
+  geminiSummary: "Gemini AI Summary"
 };
 
 const symbolMeta = {
@@ -66,6 +70,7 @@ const symbolMeta = {
   AMD: ["AMD", "AI 半导体"],
   AVGO: ["Broadcom", "AI 半导体"],
   MRVL: ["Marvell", "AI 半导体"],
+  MU: ["Micron Technology", "AI 半导体 / 存储"],
   SMCI: ["Super Micro", "AI 服务器"],
   MSFT: ["Microsoft", "大型科技"],
   AAPL: ["Apple", "大型科技"],
@@ -75,6 +80,9 @@ const symbolMeta = {
   TSLA: ["Tesla", "高 beta 动量"],
   PLTR: ["Palantir", "AI 软件"],
   ORCL: ["Oracle", "AI 软件"],
+  TSM: ["TSMC ADR", "AI 半导体 / 代工"],
+  ASML: ["ASML Holding ADR", "半导体设备"],
+  SMCI: ["Super Micro Computer", "AI 服务器"],
   CRWD: ["CrowdStrike", "云安全"],
   PANW: ["Palo Alto", "云安全"],
   COIN: ["Coinbase", "加密资产"],
@@ -181,6 +189,7 @@ const INDEX_SOURCE_MAP = {
 };
 
 const tvSymbols = [
+  "NASDAQ:MU",
   "NASDAQ:NVDA",
   "NASDAQ:AMD",
   "NASDAQ:AVGO",
@@ -191,6 +200,9 @@ const tvSymbols = [
   "NASDAQ:TSLA",
   "NASDAQ:PLTR",
   "NYSE:ORCL",
+  "NYSE:TSM",
+  "NASDAQ:ASML",
+  "NASDAQ:SMCI",
   "NASDAQ:CRWD",
   "NASDAQ:COIN",
   "NASDAQ:MSTR",
@@ -218,7 +230,9 @@ const CACHE_FIRST_SOURCES = new Set([
   "finnhubNews",
   "marketWatchNews",
   "reutersNews",
-  "secNews"
+  "googleNews",
+  "secNews",
+  "geminiSummary"
 ]);
 let snapshotRuntimeMode = "fast";
 let snapshotRuntimeStartedAt = 0;
@@ -226,7 +240,8 @@ const LAST_KNOWN_GOOD_KEY = "market-dashboard:lastKnownGood";
 const SOURCE_PLANS = {
   marketData: { primary: "Finnhub quotes", backups: ["TwelveData", "TradingView Screener", "AlphaVantage / Stooq", "lastKnownGood cache"] },
   movers: { primary: "News Aggregator movers", backups: ["marketData quotes", "Premarket Momentum Engine", "lastKnownGood cache"] },
-  newsAggregator: { primary: "Benzinga API", backups: ["Finnhub company-news", "MarketWatch RSS", "Reuters RSS", "SEC filing feed", "lastKnownGood cache"] },
+  newsAggregator: { primary: "Benzinga API", backups: ["Finnhub company-news", "Google News RSS", "MarketWatch RSS", "Reuters RSS", "SEC filing feed", "lastKnownGood cache"] },
+  geminiSummary: { primary: "Gemini API", backups: ["human-in-the-loop prompt export", "source summaries", "lastKnownGood cache"] },
   xMacro: { primary: "FRED macro layer", backups: ["AlphaVantage macro", "Market regime engine", "lastKnownGood cache"] },
   riskMetrics: { primary: "marketData indices", backups: ["FRED DGS10", "AlphaVantage macro", "lastKnownGood cache"] },
   crossAsset: { primary: "TwelveData VIX/DXY/XAU/USD", backups: ["FRED DGS10", "AlphaVantage XAUUSD/TREASURY_YIELD", "lastKnownGood cache"] },
@@ -360,6 +375,7 @@ function envDebug() {
     TWELVEDATA_API_KEY: !!process.env.TWELVEDATA_API_KEY,
     ALPHAVANTAGE_API_KEY: !!process.env.ALPHAVANTAGE_API_KEY,
     FRED_API_KEY: !!process.env.FRED_API_KEY,
+    GEMINI_API_KEY: !!process.env.GEMINI_API_KEY,
     TEST_ENV_CHECK: envValue("TEST_ENV_CHECK") || null
   };
 }
@@ -661,6 +677,10 @@ async function settleSource(key, loader, generatedAt, fallbackData = null, label
 }
 
 async function fetchWithFallback(symbol) {
+  try {
+    const yahoo = await fetchYahooChartIndex(symbol, symbol);
+    if (yahoo) return { ...yahoo, symbol, dataStatus: "DELAYED", provider: "Yahoo Chart" };
+  } catch {}
   try {
     const stooq = await fetchStooqQuote(symbol);
     if (stooq) return { ...stooq, dataStatus: "DELAYED" };
@@ -1455,7 +1475,11 @@ async function loadMarketData(rawSymbols, providerRows = {}) {
   const [fallbackMarketRows, fallbackStockRows] = snapshotRuntimeMode === "fast"
     ? await Promise.all([
         Promise.all(marketEntries.map(async ([id]) => [id, await fetchIndexWithFallback(id, indexRouteContext)])),
-        Promise.resolve(quoteSymbols.map((symbol) => [symbol, null]))
+        Promise.all(quoteSymbols.map((symbol) => (
+          TERMINAL_LITE_WATCHLIST.includes(symbol)
+            ? fetchWithFallback(symbol).then((row) => [symbol, row]).catch(() => [symbol, null])
+            : Promise.resolve([symbol, null])
+        )))
       ])
     : await Promise.all([
         Promise.all(marketEntries.map(async ([id]) => [id, await fetchIndexWithFallback(id, indexRouteContext)])),
@@ -1788,6 +1812,41 @@ async function loadReutersNews() {
     }
   }
   return { data: [], status: "unavailable", label: "Reuters/Markets", error: "no_realtime_news", fallback: true, confidence: "LOW" };
+}
+
+
+async function loadGoogleNewsRss(symbols = []) {
+  const watchlist = cleanSymbols(symbols).split(",").filter(Boolean).slice(0, 10);
+  const queries = [
+    `(${watchlist.join(" OR ")}) stock AI semiconductor earnings`,
+    "AI semiconductor stocks market news",
+    "Nasdaq market AI chip stocks news"
+  ].filter(Boolean);
+  const items = [];
+  for (const query of queries) {
+    const url = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`;
+    try {
+      const rss = await fetchText(url, {
+        "User-Agent": "Mozilla/5.0 SpecularisMarketTerminal/1.3",
+        Accept: "application/rss+xml,application/xml,text/xml,*/*"
+      });
+      const parsed = normalizeNewsFeed(parseRssItems(rss, "Google News"), "Google News");
+      items.push(...parsed);
+      if (items.length >= 18) break;
+    } catch (error) {
+      console.error("[news] google news rss failed", { query, reason: error?.message || error });
+    }
+  }
+  const seen = new Set();
+  const deduped = items.filter((item) => {
+    const key = String(item.title || item.originalTitle || "").toLowerCase().slice(0, 140);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 18);
+  return deduped.length
+    ? { data: deduped, status: "delayed", label: "Google News", error: null, fallback: false, confidence: "MEDIUM" }
+    : { data: [], status: "unavailable", label: "Google News", error: "no_realtime_news", fallback: true, confidence: "LOW" };
 }
 
 async function loadSecFilingsNews() {
@@ -2345,8 +2404,11 @@ function buildPremarketMomentumEngine({ quotes = [], tradingView = [], relativeV
       const catalystNews = newsMap.get(symbol);
       const premarketPercent = Number(stock.preMarketChangePercent ?? stock.preMarketChange ?? stock.regularMarketChangePercent ?? stock.change ?? 0);
       const relativeVolumeValue = Number(rv.relativeVolume || stock.realRelativeVolume || stock.relativeVolume || stock.volumeRatio || 1);
+      const isProxyRvol = rv.relativeVolumeStatus === "proxy" || rv.volumeStatus === "unavailable" || rv.source === "Proxy Inference";
       const gapScore = clamp(Math.max(0, premarketPercent) * 9, 0, 35);
-      const volumeScore = clamp((relativeVolumeValue - 1) * 18 + (relativeVolumeValue >= 1.5 ? 8 : 0), 0, 25);
+      const volumeScore = isProxyRvol
+        ? clamp((relativeVolumeValue - 1) * 4, 0, 6)
+        : clamp((relativeVolumeValue - 1) * 18 + (relativeVolumeValue >= 1.5 ? 8 : 0), 0, 25);
       const tvScore = clamp(Number(tv.score || 50) * 0.22 + Math.max(0, Number(tv.change || 0)) * 2, 0, 20);
       const catalystScore = catalystNews ? (catalystNews.bias === "BEARISH" ? 4 : catalystNews.bias === "BULLISH" ? 15 : 9) : 0;
       const theme = classifyPremarketTheme(stock, catalystNews);
@@ -2361,14 +2423,18 @@ function buildPremarketMomentumEngine({ quotes = [], tradingView = [], relativeV
         theme,
         premarketPercent,
         relativeVolume: relativeVolumeValue,
+        relativeVolumeStatus: isProxyRvol ? "proxy" : "real",
+        volumeStatus: isProxyRvol ? "unavailable" : "real",
         catalyst: catalystNews
           ? `${typeLabel(catalystNews.type || catalystNews.category || "news")}｜${catalystNews.summary || catalystNews.title}`
-          : relativeVolumeValue >= 1.5
-            ? "相对成交量扩张，等待开盘延续确认。"
-            : "价格进入盘前动能扫描，等待新闻或量能确认。",
+          : isProxyRvol
+            ? "RVOL Proxy：未取得真实成交量，仅按价格波动进入观察。"
+            : relativeVolumeValue >= 1.5
+              ? "相对成交量扩张，等待开盘延续确认。"
+              : "价格进入盘前动能扫描，等待新闻或量能确认。",
         momentumScore,
-        dataQuality: marketStatus,
-        source: "Finnhub / TradingView / Relative Volume / News Catalyst"
+        dataQuality: isProxyRvol ? "proxy" : marketStatus,
+        source: isProxyRvol ? "Price Momentum + RVOL Proxy" : "Finnhub / TradingView / Relative Volume / News Catalyst"
       };
     })
     .filter((item) => item.momentumScore > 0)
@@ -2407,7 +2473,9 @@ function calculateOptionsSignalScore(stock, context = {}) {
   const sector = stock.sector || "其他";
   const sectorHeat = sectorMap.get(sector)?.score ?? (55 + sectorThemeBonus(sector));
   const preChange = Number(stock.preMarketChangePercent ?? stock.preMarketChange ?? 0);
-  const relativeVolume = Number(rvolMap.get(stock.symbol)?.relativeVolume || stock.relativeVolume || stock.volumeRatio || 1);
+  const rvEntry = rvolMap.get(stock.symbol) || {};
+  const relativeVolume = Number(rvEntry.relativeVolume || stock.relativeVolume || stock.volumeRatio || 1);
+  const isProxyRvol = rvEntry.relativeVolumeStatus === "proxy" || rvEntry.volumeStatus === "unavailable" || rvEntry.source === "Proxy Inference";
   const momentumScore = Number(momentumMap.get(stock.symbol)?.momentumScore || 0);
   const tvScore = Number(tvMap.get(stock.symbol)?.score || 50);
   const newsBias = news.find((item) => item.ticker === stock.symbol)?.bias || "NEUTRAL";
@@ -2417,7 +2485,8 @@ function calculateOptionsSignalScore(stock, context = {}) {
   const riskAssetStrength = qqq * 5 + spy * 2 - Math.max(0, vix) * 2;
   const volRiskPenalty = vix > 1 ? 8 : vix > 0 ? 4 : 0;
   const directionBias = preChange >= 0 ? 1 : -1;
-  const baseScore = Math.min(Math.abs(preChange), 6) * 8 + Math.min(relativeVolume, 3) * 11 + sectorHeat * 0.18 + momentumScore * 0.16 + tvScore * 0.1;
+  const rvolContribution = isProxyRvol ? Math.min(relativeVolume, 1.2) : Math.min(relativeVolume, 3);
+  const baseScore = Math.min(Math.abs(preChange), 6) * 8 + rvolContribution * 11 + sectorHeat * 0.18 + momentumScore * 0.16 + tvScore * 0.1;
   const catalystScore = newsBias === "BULLISH" ? 12 : newsBias === "BEARISH" ? -8 : 4;
   const callScore = clamp(Math.round(baseScore + catalystScore + riskAssetStrength - volRiskPenalty));
   const putScore = clamp(Math.round(baseScore + (newsBias === "BEARISH" ? 14 : 0) - riskAssetStrength + (preChange < 0 ? 12 : 0) + Math.max(0, vix) * 2));
@@ -2434,6 +2503,7 @@ function calculateOptionsSignalScore(stock, context = {}) {
     direction,
     type: direction,
     relativeVolume,
+    relativeVolumeStatus: isProxyRvol ? "proxy" : "real",
     reason: optionsSignalSummary(stock, bucket, { preChange, relativeVolume, qqq, spy, vix, newsBias }),
     summary: optionsSignalSummary(stock, bucket, { preChange, relativeVolume, qqq, spy, vix, newsBias }),
     risk: optionsSignalRisk(bucket, { preChange, relativeVolume, vix }),
@@ -2493,7 +2563,75 @@ function calculateRiskRegime(indices) {
   return { mode: score >= 56 ? "Risk-On" : score <= 44 ? "Risk-Off" : "Neutral", score };
 }
 
-export async function buildSnapshot(req) {
+export 
+function parseGeminiText(payload) {
+  return payload?.candidates?.[0]?.content?.parts?.map((part) => part?.text || "").join("\n").trim() || "";
+}
+
+function buildGeminiBriefPrompt({ summary, marketRegime, stocks, newsCatalysts, optionsLite }) {
+  const compactStocks = (stocks || []).slice(0, 10).map((item) => ({
+    ticker: item.ticker,
+    price: item.currentPrice,
+    change: item.dailyChangePercent,
+    trend: item.trendStatus,
+    volumeStatus: item.volumeStatus,
+    riskFlags: item.riskFlags,
+    tradeRelevance: item.tradeRelevance,
+  }));
+  const compactNews = (newsCatalysts || []).slice(0, 8).map((item) => ({
+    symbol: item.symbol,
+    type: item.catalystType,
+    sentiment: item.sentiment,
+    importance: item.importance,
+    summary: item.chineseSummary || item.reason,
+  }));
+  const compactOptions = (optionsLite || []).slice(0, 10).map((item) => ({
+    ticker: item.ticker,
+    status: item.optionDataStatus,
+    preferredStructure: item.preferredStructure,
+    riskLevel: item.riskLevel,
+  }));
+  return `You are an equity-market intelligence summarizer for a research-only dashboard. Do not give aggressive financial advice.\n\nReturn concise JSON only with keys: zhSummary, enSummary, topRisks, watchlistFocus, noTradeReasons, dataQualityNotes.\n\nMarket summary: ${JSON.stringify(summary || {})}\nMarket regime: ${JSON.stringify(marketRegime || {})}\nStocks: ${JSON.stringify(compactStocks)}\nNews catalysts: ${JSON.stringify(compactNews)}\nOptions Lite: ${JSON.stringify(compactOptions)}\n\nRules:\n- Mention when data is delayed/proxy/unavailable.\n- If market gate is weak, emphasize observation and risk control.\n- No fabricated GEX/IV/options flow.`;
+}
+
+async function runGeminiSummary({ summary, marketRegime, stocks, newsCatalysts, optionsLite }) {
+  const key = envValue("GEMINI_API_KEY");
+  if (!key) {
+    return { status: "unavailable", dataStatus: "unavailable", source: "Gemini API", error: "missing_key", summary: null };
+  }
+  const model = envValue("GEMINI_MODEL") || "gemini-2.5-flash-lite";
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
+  const prompt = buildGeminiBriefPrompt({ summary, marketRegime, stocks, newsCatalysts, optionsLite });
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 900, responseMimeType: "application/json" }
+      })
+    });
+    if (!response.ok) throw new Error(`gemini_${response.status}`);
+    const payload = await response.json();
+    const text = parseGeminiText(payload);
+    let parsed = null;
+    try { parsed = JSON.parse(text); } catch { parsed = { rawText: text }; }
+    return {
+      status: "live",
+      dataStatus: "ai-generated",
+      source: `Gemini API · ${model}`,
+      error: null,
+      confidence: "MEDIUM",
+      summary: parsed,
+      generatedAt: new Date().toISOString()
+    };
+  } catch (error) {
+    return { status: "unavailable", dataStatus: "unavailable", source: `Gemini API · ${model}`, error: error?.message || "gemini_failed", confidence: "LOW", summary: null };
+  }
+}
+
+async function buildSnapshot(req) {
   const generatedAt = Date.now();
   snapshotRuntimeStartedAt = generatedAt;
   const modeParam = String(req?.query?.mode || req?.query?.deep || "").toLowerCase();
@@ -2521,7 +2659,7 @@ export async function buildSnapshot(req) {
     }
   }
 
-  const defaultSymbols = "SPY,QQQ,NVDA,AMD,AVGO,MRVL,MSFT,AMZN,META,TSLA,PLTR,ORCL,CRWD,COIN,MSTR,DASH,CSCO,LLY,AAPL,XLK,SMH,SOXX,XLF,XLE,XLV,XLY,XLP,XLI,XLB,XLU,XLRE,XLC,IWM,IBIT,CL=F,BZ=F";
+  const defaultSymbols = "SPY,QQQ,MU,MRVL,NVDA,AVGO,AMD,TSM,ASML,PLTR,ORCL,SMCI,MSFT,AMZN,META,TSLA,CRWD,COIN,MSTR,DASH,CSCO,LLY,AAPL,XLK,SMH,SOXX,XLF,XLE,XLV,XLY,XLP,XLI,XLB,XLU,XLRE,XLC,IWM,IBIT,CL=F,BZ=F";
   const symbols = cleanSymbols(req?.query?.symbols || defaultSymbols);
   const marketSymbols = `${Object.values(MARKET_SYMBOLS).join(",")},${symbols}`;
   const finnhubProbe = await loadFinnhubStrictProbe();
@@ -2551,10 +2689,11 @@ export async function buildSnapshot(req) {
     fred: fredMacro.data || [],
     alphaMacro: alphaMacro.data || null
   }), generatedAt, { indices: lastGoodIndices(), quotes: lastGoodQuotes() });
-  const [reddit, benzingaNews, finnhubNews, marketWatchNews, reutersNews, secNews] = await Promise.all([
+  const [reddit, benzingaNews, finnhubNews, googleNews, marketWatchNews, reutersNews, secNews] = await Promise.all([
     settleSource("reddit", loadReddit, generatedAt, { score: 50, tone: "中性", mentions: [["NVDA",0],["AMD",0],["PLTR",0],["MSFT",0]], summary: "Reddit 实时源暂不可用，使用本地代理热度。", dataQuality: "proxy" }),
     settleSource("benzinga", loadBenzingaNews, generatedAt, [], "Benzinga API"),
     settleSource("finnhubNews", () => loadFinnhubNews(symbols), generatedAt, [], "Finnhub News"),
+    settleSource("googleNews", () => loadGoogleNewsRss(symbols), generatedAt, [], "Google News RSS"),
     settleSource("marketWatchNews", loadMarketWatchNews, generatedAt, [], "MarketWatch RSS"),
     settleSource("reutersNews", loadReutersNews, generatedAt, [], "Reuters RSS"),
     settleSource("secNews", loadSecFilingsNews, generatedAt, [], "SEC Filing Feed")
@@ -2987,6 +3126,7 @@ export async function buildSnapshot(req) {
         reddit,
         tradingView,
         finnhubNews,
+        googleNews,
         marketWatchNews,
         reutersNews,
         secNews,
@@ -3003,6 +3143,253 @@ export async function buildSnapshot(req) {
     }
   };
   snapshot.debugActiveMarketData = buildDebugActiveMarketData(snapshot);
+
+  // ── Specularis Market Terminal Lite — backward-compatible extension ──
+  // All new fields live under `terminalLite` namespace so existing consumers are unaffected.
+  // ── Specularis Market Terminal Lite — terminalLite snapshot namespace ──
+  // Backward-compatible: all new fields under `terminalLite`, no existing consumers affected.
+  // dataStatus values: "live" | "cached" | "manual" | "placeholder" | "unavailable"
+  const TL_WATCHLIST = TERMINAL_LITE_WATCHLIST;
+
+  // Helper: build a stock intel entry from available snapshot data for one ticker.
+  function buildTLStockEntry(ticker, quotesMap, earningsEvents, insiderSignals, newsItems = [], rvMap = new Map(), sectorHeatRows = []) {
+    const q = quotesMap.get(ticker);
+    const earnEntry = (earningsEvents || []).find(e => e?.symbol === ticker || e?.ticker === ticker);
+    const insiderRows = (insiderSignals || []).filter(s => s?.symbol === ticker || s?.ticker === ticker);
+    const insiderNet = insiderRows.length > 0
+      ? (insiderRows.filter(r => String(r.type || r.transactionType || "").toLowerCase().includes("buy")).length > insiderRows.filter(r => String(r.type || r.transactionType || "").toLowerCase().includes("sell")).length ? "净增持" : "净减持")
+      : null;
+    const hasPrice = q && Number.isFinite(Number(q.price)) && Number(q.price) > 0;
+    const change = hasPrice ? Number(q.preMarketChangePercent ?? q.regularMarketChangePercent ?? q.change ?? 0) : null;
+    const rvEntry = rvMap.get(ticker) || {};
+    const rvol = Number(q?.relativeVolume ?? q?.volumeRatio ?? rvEntry.relativeVolume ?? 0);
+    const realVolume = Number(q?.volume || rvEntry.volume || 0);
+    const realAvgVolume = Number(q?.averageVolume || q?.avgVolume || rvEntry.avgVolume || 0);
+    const isProxyRvol = rvEntry.relativeVolumeStatus === "proxy" || rvEntry.volumeStatus === "unavailable" || rvEntry.source === "Proxy Inference" || !(realVolume > 0 && realAvgVolume > 0);
+    const volumeStatus = !hasPrice ? "placeholder" : isProxyRvol ? "proxy" : Number.isFinite(rvol) && rvol >= 2 ? "above_average" : Number.isFinite(rvol) && rvol > 0 ? "average" : "unavailable";
+    const trendStatus = hasPrice && Number.isFinite(change)
+      ? change >= 3 ? "strong_uptrend" : change > 0.8 ? "uptrend" : change <= -3 ? "strong_downtrend" : change < -0.8 ? "downtrend" : "sideways"
+      : "placeholder";
+    const relatedNews = (newsItems || []).filter(n => {
+      const text = `${n?.title || ""} ${n?.summary || ""} ${n?.headline || ""}`.toUpperCase();
+      return text.includes(ticker);
+    }).slice(0, 3).map(n => ({
+      title: n.title || n.headline || String(n).slice(0, 140),
+      source: n.source || n.provider || "news",
+      url: n.url || null,
+      dataStatus: "cached"
+    }));
+    const price = hasPrice ? Number(q.price) : null;
+    const keySupport = price ? Number((price * 0.97).toFixed(2)) : null;
+    const keyResistance = price ? Number((price * 1.04).toFixed(2)) : null;
+    const dataStatus = hasPrice ? (q.dataQuality === "live" || q.status === "live" ? "live" : q.dataQuality === "delayed" || q.status === "delayed" ? "delayed" : "proxy") : "placeholder";
+    const riskFlags = [];
+    if (Number.isFinite(change) && change <= -4) riskFlags.push("price_pressure");
+    if (Number.isFinite(change) && change >= 5) riskFlags.push("chasing_risk");
+    if (earnEntry) riskFlags.push("earnings_event");
+    return {
+      ticker,
+      currentPrice: price,
+      dailyChangePercent: Number.isFinite(change) ? Number(change.toFixed(2)) : null,
+      earningsDate: earnEntry?.reportDate || earnEntry?.date || null,
+      insiderSignal: insiderNet,
+      dataStatus,
+      trendStatus,
+      volumeStatus,
+      relativeVolumeStatus: isProxyRvol ? "proxy" : "real",
+      keySupport,
+      keyResistance,
+      recentNews: relatedNews,
+      analystTone: "placeholder",
+      institutionalSignal: "placeholder",
+      aiSummary: hasPrice
+        ? `${ticker} 已接入免费/延迟行情。当前为 ${trendStatus}，涨跌幅 ${Number.isFinite(change) ? change.toFixed(2) : "--"}%。${isProxyRvol ? "成交量为 RVOL Proxy，不能当真实放量。" : "成交量为真实/可用数据。"}仍需人工确认新闻、财报与期权风险。`
+        : "等待免费行情或手动输入后生成分析摘要。",
+      riskFlags,
+      tradeRelevance: hasPrice ? (Number.isFinite(change) && change > 1 ? "watch" : Number.isFinite(change) && change < -5 ? "avoid" : "watch") : "watch",
+      source: hasPrice ? (q.source || "Market Data Adapter") : "placeholder",
+      lastUpdated: hasPrice ? (q.timestamp || generatedAt) : null,
+    };
+  }
+
+  function buildTLOptionsEntry(ticker, quoteMap, optionsCards = [], earnEntry = null) {
+    const q = quoteMap.get(ticker);
+    const card = (optionsCards || []).find(c => c?.symbol === ticker || c?.ticker === ticker);
+    const change = Number(q?.preMarketChangePercent ?? q?.regularMarketChangePercent ?? q?.change ?? 0);
+    let preferredStructure = "wait";
+    let riskLevel = "medium";
+    let reason = "Options Lite Mode — 未接入真实 IV/GEX/期权链，基于正股走势、市场环境与代理信号。";
+    if (card?.bucket === "PUT" || card?.direction?.includes?.("PUT")) {
+      preferredStructure = "put_spread";
+      riskLevel = "medium_high";
+      reason = card.reason || "代理信号偏 PUT / 对冲观察；需开盘后确认 QQQ/SPY/VIX。";
+    } else if (card?.bucket === "CALL" || card?.direction?.includes?.("CALL")) {
+      preferredStructure = "call_spread";
+      riskLevel = "medium";
+      reason = card.reason || "代理信号偏 CALL；无真实 IV/GEX 支撑，优先价差而非裸追。";
+    } else if (Number.isFinite(change) && change <= -4) {
+      preferredStructure = "put_spread";
+      reason = "正股跌幅较大，Lite 模式仅提示 PUT/对冲观察，禁止把它当真实期权流。";
+    } else if (Number.isFinite(change) && change >= 3) {
+      preferredStructure = "call_spread";
+      reason = "正股动量偏强，但无真实 IV/GEX，优先价差或等待回踩。";
+    }
+    if (earnEntry) riskLevel = "high";
+    return {
+      ticker,
+      optionDataStatus: "lite-mode",
+      ivStatus: "unavailable",
+      earningsVolRisk: Boolean(earnEntry),
+      preferredStructure,
+      reason,
+      invalidationCondition: card?.invalidation || "QQQ/SPY/VIX 与正股方向背离时降权或回避。",
+      riskLevel,
+      notes: "免费版不接入真实期权大单流；这里是代理判断，不是 GEX/flow。",
+      dataStatus: q ? (q.dataQuality === "live" || q.status === "live" ? "live" : q.dataQuality === "delayed" || q.status === "delayed" ? "delayed" : "proxy") : "placeholder",
+      source: card ? "existing_options_signal_proxy" : "stock_proxy",
+      _future_gammaWall: null,
+      _future_callWall: null,
+      _future_putWall: null,
+      _future_ivRank: null,
+      _future_skew: null,
+      _future_openInterest: null,
+      _future_unusualOptionsFlow: null,
+    };
+  }
+
+  function buildTLDecisionEntry(ticker, stockEntry, optionsEntry, marketRegimeSummary) {
+    const change = Number(stockEntry?.dailyChangePercent);
+    const marketScore = Number(marketRegimeSummary?.score);
+    const marketPts = Number.isFinite(marketScore) ? (marketScore >= 65 ? 2 : marketScore >= 45 ? 1 : 0) : 0;
+    const trendPts = stockEntry?.trendStatus?.includes("uptrend") ? 2 : stockEntry?.trendStatus === "sideways" ? 1 : 0;
+    const catalystPts = Array.isArray(stockEntry?.recentNews) && stockEntry.recentNews.length ? 1 : 0;
+    const optionPts = optionsEntry?.preferredStructure && !["wait", "avoid"].includes(optionsEntry.preferredStructure) ? 1 : 0;
+    const riskPts = stockEntry?.keySupport && stockEntry?.keyResistance ? 1 : 0;
+    const score = stockEntry?.dataStatus === "placeholder" ? null : marketPts + trendPts + catalystPts + optionPts + riskPts;
+    const rating = score == null ? "placeholder" : score >= 7 ? "A" : score >= 5 ? "B" : score >= 3 ? "C" : "Avoid";
+    const action = rating === "placeholder" ? "watch" : rating === "A" ? "watch" : rating === "B" ? "watch" : rating === "C" ? "wait_for_pullback" : "avoid";
+    return {
+      ticker,
+      score,
+      rating,
+      action,
+      preferredVehicle: optionsEntry?.preferredStructure === "call_spread" ? "call_spread" : optionsEntry?.preferredStructure === "put_spread" ? "option" : "no_trade",
+      keyEntryZone: stockEntry?.keySupport || null,
+      invalidationLevel: stockEntry?.keySupport ? `Below ${stockEntry.keySupport}` : null,
+      targetZone: stockEntry?.keyResistance || null,
+      reason: score == null
+        ? "行情缺失，等待免费数据或手动输入。"
+        : `Lite 评分 ${score}/10：市场 ${marketPts}，趋势 ${trendPts}，催化 ${catalystPts}，期权代理 ${optionPts}，风控 ${riskPts}。`,
+      riskWarning: "仅供研究，不构成投资建议。For research only, not financial advice.",
+      scoreBreakdown: { marketRegime: marketPts, stockTrend: trendPts, catalystQuality: catalystPts, optionRiskReward: optionPts, kolConfirmation: 0, riskControlClarity: riskPts },
+      dataStatus: score == null ? "placeholder" : "computed-lite",
+    };
+  }
+
+  // Build per-ticker data from existing snapshot sources.
+  const tlQuotes = (snapshot.marketData?.quotes || []);
+  const tlQuoteMap = new Map(tlQuotes.map(q => [q.symbol, q]));
+  const tlEarnings = snapshot.layers?.earnings?.events || [];
+  const tlInsider = snapshot.layers?.insider?.signals || [];
+  const tlNewsItems = [
+    ...(snapshot.newsCatalysts || []),
+    ...(snapshot.layers?.newsCatalysts?.items || []),
+    ...(snapshot.sources?.finnhubNews?.data || []),
+    ...(snapshot.sources?.googleNews?.data || []),
+    ...(snapshot.sources?.marketWatchNews?.data || []),
+    ...(snapshot.sources?.reutersNews?.data || [])
+  ].filter(Boolean);
+  const tlRvMap = new Map((snapshot.layers?.relativeVolume?.leaders || []).map(r => [r.symbol, r]));
+  const tlOptionCards = snapshot.optionsSignals?.cards || snapshot.layers?.optionsSignals?.cards || [];
+  const tlMarketRegimeSummary = {
+      mode: snapshot.riskRegime?.mode || null,
+      score: snapshot.riskRegime?.score ?? null,
+      label: snapshot.strategySummary?.headline || null,
+      conclusion: snapshot.riskRegime?.conclusion || null,
+      source: "existing_risk_regime",
+      dataStatus: snapshot.riskRegime?.mode ? "delayed" : "placeholder",
+    };
+  const tlStockIntel = TL_WATCHLIST.map(ticker =>
+      buildTLStockEntry(ticker, tlQuoteMap, tlEarnings, tlInsider, tlNewsItems, tlRvMap, snapshot.sectorHeat?.strongestSectors || [])
+    );
+  const tlOptionsLite = TL_WATCHLIST.map(ticker => {
+      const earnEntry = tlEarnings.find(e => e?.symbol === ticker || e?.ticker === ticker);
+      return buildTLOptionsEntry(ticker, tlQuoteMap, tlOptionCards, earnEntry);
+    });
+  const tlDecisionLayer = TL_WATCHLIST.map(ticker =>
+      buildTLDecisionEntry(ticker, tlStockIntel.find(x => x.ticker === ticker), tlOptionsLite.find(x => x.ticker === ticker), tlMarketRegimeSummary)
+    );
+
+  const tlGeminiSummary = await runGeminiSummary({
+    summary: snapshot.strategySummary,
+    marketRegime: tlMarketRegimeSummary,
+    stocks: tlStockIntel,
+    newsCatalysts: snapshot.newsCatalysts || [],
+    optionsLite: tlOptionsLite
+  });
+
+  snapshot.terminalLite = {
+    meta: {
+      version: "specularis-market-terminal-lite-v1.3",
+      generatedAt: new Date(generatedAt).toISOString(),
+      dataMode: "free-lite-auto-hydration-news-ai",
+      aiMode: envValue("GEMINI_API_KEY") ? "gemini-assisted + human-in-the-loop" : "human-in-the-loop",
+      dataQuality: "mixed",
+    },
+    watchlistTickers: TL_WATCHLIST,
+
+    // ── Market regime (from existing risk engine — NOT fabricated) ──
+    marketRegimeSummary: tlMarketRegimeSummary,
+
+    // ── Stock Intelligence Pro: per-ticker snapshot defaults ──
+    // dataStatus=live/delayed/proxy where snapshot has price; placeholder otherwise.
+    // Manual overrides are applied client-side and stored in localStorage.
+    // Never fabricate precision data here.
+    stockIntelligencePro: tlStockIntel,
+
+    // ── Options Intelligence Lite: server-side placeholders only ──
+    // Real IV/GEX data not available on free tier. Client-side manual overrides apply.
+    optionsIntelligenceLite: tlOptionsLite,
+
+    // ── KOL Distillation: empty on server, populated client-side via manual input ──
+    // No X API available. Client localStorage is the source of truth.
+    kolDistillation: {
+      entries: [],
+      dataStatus: "placeholder",
+      note: "KOL 内容通过客户端手动输入。X API 暂不可用。",
+    },
+
+    // ── AI Decision Layer: server-side placeholder scoring ──
+    // Real scoring requires client-side manual data. Computed client-side.
+    aiDecisionLayer: tlDecisionLayer,
+
+    // ── Gemini AI Summary: optional free-tier AI distillation layer ──
+    geminiSummary: tlGeminiSummary,
+
+    // ── News Source Status: shows whether RSS/API news is working ──
+    newsSourceStatus: {
+      selectedSource: selectedNewsSource?.name || null,
+      aggregateStatus: aggregateNewsStatus,
+      catalystsCount: Array.isArray(snapshot.newsCatalysts) ? snapshot.newsCatalysts.length : 0,
+      sources: {
+        finnhub: finnhubNews?.status || "unavailable",
+        googleNews: googleNews?.status || "unavailable",
+        marketWatch: marketWatchNews?.status || "unavailable",
+        reuters: reutersNews?.status || "unavailable",
+        sec: secNews?.status || "unavailable"
+      }
+    },
+
+    // ── Prompt Export config: static template metadata ──
+    promptExport: {
+      version: "v1.3",
+      supportedLanguages: ["zh", "en"],
+      mode: "human-in-the-loop",
+      note: "Prompts generated client-side. No OpenAI/Anthropic API called from server.",
+      dataStatus: "placeholder",
+    },
+  };
+
   const goodForCache = isGoodSnapshotForCache(snapshot);
   snapshot.cacheWriteStatus = {
     attempted: true,
@@ -3117,6 +3504,7 @@ export default async function handler(req, res) {
         newsAggregator: { ...fallbackSource("newsAggregator", { movers: [], news: [] }), status: "unavailable", dataQuality: "unavailable", error: "no_realtime_news" },
         benzinga: { ...fallbackSource("benzinga", { movers: [], news: [] }), status: "unavailable", dataQuality: "unavailable", error: "no_realtime_news" },
         finnhubNews: { ...fallbackSource("finnhubNews", []), status: "unavailable", dataQuality: "unavailable", error: "no_realtime_news" },
+        googleNews: { ...fallbackSource("googleNews", []), status: "unavailable", dataQuality: "unavailable", error: "no_realtime_news" },
         marketWatchNews: { ...fallbackSource("marketWatchNews", []), status: "unavailable", dataQuality: "unavailable", error: "no_realtime_news" },
         reutersNews: { ...fallbackSource("reutersNews", []), status: "unavailable", dataQuality: "unavailable", error: "no_realtime_news" },
         secNews: { ...fallbackSource("secNews", []), status: "unavailable", dataQuality: "unavailable", error: "no_realtime_news" }

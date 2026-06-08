@@ -2724,6 +2724,8 @@ function newsBiasClass(bias) {
 function renderProWorkspaces(dashboard) {
   if (!dashboard) return;
   latestDashboard = dashboard;
+  // Expose to Specularis Market Terminal Lite modules.
+  window._specularisDashboard = dashboard;
   renderIntradayWorkspace(dashboard);
   renderDailyReportWorkspace(dashboard);
   renderNextPlanWorkspace(dashboard);

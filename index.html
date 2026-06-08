@@ -29,14 +29,23 @@
         <button class="workspace-tab" type="button" data-workspace-target="intraday">
           <span>02</span><strong>盘中信息流</strong><em>Live Flow</em>
         </button>
+        <button class="workspace-tab workspace-tab--new" type="button" data-workspace-target="stock-intel">
+          <span>03</span><strong>个股情报 Pro</strong><em>Stock Intel</em>
+        </button>
+        <button class="workspace-tab workspace-tab--new" type="button" data-workspace-target="options-lite">
+          <span>04</span><strong>期权与波动率</strong><em>Options Lite</em>
+        </button>
+        <button class="workspace-tab workspace-tab--new" type="button" data-workspace-target="kol-ai">
+          <span>05</span><strong>KOL · AI 决策</strong><em>KOL + AI Layer</em>
+        </button>
         <button class="workspace-tab" type="button" data-workspace-target="report">
-          <span>03</span><strong>收盘日报</strong><em>Daily Report</em>
+          <span>06</span><strong>收盘日报</strong><em>Daily Report</em>
         </button>
         <button class="workspace-tab" type="button" data-workspace-target="plan">
-          <span>04</span><strong>明日交易计划</strong><em>Next Plan</em>
+          <span>07</span><strong>明日计划</strong><em>Next Plan</em>
         </button>
         <button class="workspace-tab" type="button" data-workspace-target="watchlist">
-          <span>05</span><strong>AI Watchlist</strong><em>Focus List</em>
+          <span>08</span><strong>AI Watchlist</strong><em>Focus List</em>
         </button>
       </nav>
 
@@ -302,10 +311,60 @@
         </section>
       </section>
 
+      <!-- ===== STOCK INTELLIGENCE PRO ===== -->
+      <section class="workspace-view" data-workspace="stock-intel">
+        <section class="section pro-hero-card">
+          <div class="section-title">
+            <h2>个股情报 Pro <small>STOCK INTELLIGENCE PRO</small></h2>
+            <span>MU · MRVL · NVDA · AVGO · AMD · TSM · ASML · PLTR · ORCL · SMCI</span>
+          </div>
+          <div id="sipContainer" class="loading-zone is-loading"></div>
+        </section>
+      </section>
+
+      <!-- ===== OPTIONS INTELLIGENCE LITE ===== -->
+      <section class="workspace-view" data-workspace="options-lite">
+        <section class="section pro-hero-card">
+          <div class="section-title">
+            <h2>期权与波动率 <small>OPTIONS INTELLIGENCE LITE</small></h2>
+            <span id="oilModuleMeta">免费版代理信号 · Lite Mode Proxy Signals</span>
+          </div>
+          <div id="oilContainer" class="loading-zone is-loading"></div>
+        </section>
+      </section>
+
+      <!-- ===== KOL DISTILLATION + AI DECISION + PROMPT EXPORT ===== -->
+      <section class="workspace-view" data-workspace="kol-ai">
+        <section class="section pro-hero-card">
+          <div class="section-title">
+            <h2>KOL 观点蒸馏 <small>KOL DISTILLATION</small></h2>
+            <span>手动输入 · Manual Input Mode</span>
+          </div>
+          <div id="kolContainer" class="loading-zone is-loading"></div>
+        </section>
+
+        <section class="section pro-hero-card" style="margin-top:14px">
+          <div class="section-title">
+            <h2>AI 决策层 <small>AI DECISION LAYER — A+ SCORING</small></h2>
+            <span>综合评分：市场环境 + 股价动能 + 催化质量 + 期权 + KOL + 风控</span>
+          </div>
+          <div id="adlContainer" class="loading-zone is-loading"></div>
+        </section>
+
+        <section class="section pro-hero-card" style="margin-top:14px">
+          <div class="section-title">
+            <h2>生成 AI 提示词 <small>AI PROMPT EXPORT — HUMAN-IN-THE-LOOP</small></h2>
+            <span>生成可粘贴至 GPT Plus / Claude Pro 的完整分析提示词</span>
+          </div>
+          <div id="apeContainer" class="loading-zone is-loading"></div>
+        </section>
+      </section>
+
     </main>
 
     <script src="./config.js"></script>
     <script src="./app.js"></script>
     <script src="./i18n.js"></script>
+    <script type="module" src="./modules/specularis-terminal-lite.js"></script>
   </body>
 </html>
