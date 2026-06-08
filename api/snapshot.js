@@ -227,10 +227,11 @@ const CACHE_FIRST_SOURCES = new Set([
   "insider",
   "reddit",
   "benzinga",
-  "finnhubNews",
+  // v1.3.1: keep high-value free news sources out of cache-first fast path.
+  // They are lightweight enough to fetch in fast mode and are required for newsCatalysts.
+  // MarketWatch/Reuters/SEC remain cache-first to protect Vercel Hobby time budget.
   "marketWatchNews",
   "reutersNews",
-  "googleNews",
   "secNews",
   "geminiSummary"
 ]);
@@ -1816,11 +1817,17 @@ async function loadReutersNews() {
 
 
 async function loadGoogleNewsRss(symbols = []) {
-  const watchlist = cleanSymbols(symbols).split(",").filter(Boolean).slice(0, 10);
+  const rawSymbols = cleanSymbols(symbols).split(",").filter(Boolean);
+  const focus = [
+    ...TERMINAL_LITE_WATCHLIST,
+    ...rawSymbols.filter((s) => /^[A-Z]{1,5}$/.test(s) && !["SPY", "QQQ", "VIX", "TNX", "DXY", "GOLD", "NDX", "WTI", "BRENT"].includes(s))
+  ];
+  const watchlist = [...new Set(focus)].slice(0, 12);
   const queries = [
-    `(${watchlist.join(" OR ")}) stock AI semiconductor earnings`,
-    "AI semiconductor stocks market news",
-    "Nasdaq market AI chip stocks news"
+    watchlist.length ? `(${watchlist.join(" OR ")}) stock earnings analyst AI semiconductor` : "AI semiconductor stocks earnings analyst",
+    "Nvidia AMD Broadcom Micron Marvell semiconductor stocks news",
+    "Nasdaq AI chip stocks market news",
+    "US stock market technology earnings news"
   ].filter(Boolean);
   const items = [];
   for (const query of queries) {
@@ -2705,6 +2712,7 @@ async function buildSnapshot(req) {
   const newsCandidates = [
     { name: "benzinga", source: benzingaNews },
     { name: "finnhub", source: finnhubNews },
+    { name: "googleNews", source: googleNews },
     { name: "finnhub_earnings", source: finnhubEarningsNews },
     { name: "finnhub_insider", source: finnhubInsiderNews },
     { name: "marketwatch", source: marketWatchNews },
@@ -2712,7 +2720,16 @@ async function buildSnapshot(req) {
     { name: "sec", source: secNews }
   ];
   const selectedNewsSource = newsCandidates.find((item) => Array.isArray(item.source?.data) && item.source.data.length) || null;
-  const news = selectedNewsSource ? selectedNewsSource.source.data : [];
+  const newsSeen = new Set();
+  const news = newsCandidates
+    .flatMap((item) => (Array.isArray(item.source?.data) ? item.source.data.map((row) => ({ ...row, provider: row.provider || item.name })) : []))
+    .filter((item) => {
+      const key = String(item.title || item.originalTitle || item.summary || item.reason || "").toLowerCase().slice(0, 160);
+      if (!key || newsSeen.has(key)) return false;
+      newsSeen.add(key);
+      return true;
+    })
+    .slice(0, 30);
 
   let sectorHeatData = { status: "unavailable", source: "Sector Heat Engine", confidence: "LOW", strongestSectors: [], weakestSectors: [], rotationType: "NO_VALID_SECTOR_DATA", explanation: "暂无可用板块源，使用缓存策略维持结构。", error: "not_generated" };
   let sectorData = [];
@@ -3330,9 +3347,9 @@ async function buildSnapshot(req) {
 
   snapshot.terminalLite = {
     meta: {
-      version: "specularis-market-terminal-lite-v1.3",
+      version: "specularis-market-terminal-lite-v1.3.1",
       generatedAt: new Date(generatedAt).toISOString(),
-      dataMode: "free-lite-auto-hydration-news-ai",
+      dataMode: "free-lite-auto-hydration-news-ai-v1.3.1",
       aiMode: envValue("GEMINI_API_KEY") ? "gemini-assisted + human-in-the-loop" : "human-in-the-loop",
       dataQuality: "mixed",
     },
@@ -3371,18 +3388,20 @@ async function buildSnapshot(req) {
       selectedSource: selectedNewsSource?.name || null,
       aggregateStatus: aggregateNewsStatus,
       catalystsCount: Array.isArray(snapshot.newsCatalysts) ? snapshot.newsCatalysts.length : 0,
+      totalNewsItems: Array.isArray(news) ? news.length : 0,
       sources: {
         finnhub: finnhubNews?.status || "unavailable",
         googleNews: googleNews?.status || "unavailable",
         marketWatch: marketWatchNews?.status || "unavailable",
         reuters: reutersNews?.status || "unavailable",
         sec: secNews?.status || "unavailable"
-      }
+      },
+      notes: "v1.3.1 fetches Finnhub + Google News in fast mode; slower RSS/SEC sources remain cache-first."
     },
 
     // ── Prompt Export config: static template metadata ──
     promptExport: {
-      version: "v1.3",
+      version: "v1.3.1",
       supportedLanguages: ["zh", "en"],
       mode: "human-in-the-loop",
       note: "Prompts generated client-side. No OpenAI/Anthropic API called from server.",

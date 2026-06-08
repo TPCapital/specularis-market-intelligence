@@ -1,3 +1,12 @@
+
+## v1.3.1 - News Catalyst Fast-Path Fix
+
+- Fixed news source selection so Google News RSS participates in the main news aggregation pipeline.
+- Removed Finnhub News and Google News from cache-first fast path so lightweight free news can hydrate in Vercel fast mode.
+- Merged multiple news sources instead of selecting only a single provider.
+- Added `terminalLite.newsSourceStatus.totalNewsItems` and v1.3.1 source notes.
+- Preserved strict data honesty: no fabricated news, GEX, IV rank, options flow, X/KOL data, or trade signals.
+
 # Changelog
 
 ## v1.3 — Free News + Gemini AI Summary Layer
