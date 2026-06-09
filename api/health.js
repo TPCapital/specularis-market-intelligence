@@ -1,4 +1,5 @@
 import { noStoreJson } from "../lib/utils.js";
+import { getProviderHealth } from "../lib/ai-router.js";
 
 function envValue(name) {
   const value = process.env[name];
@@ -22,6 +23,10 @@ async function upstashPing() {
 }
 
 export default async function handler(req, res) {
+  if (String(req.query?.__provider_health || "") === "1") {
+    noStoreJson(res, 200, getProviderHealth());
+    return;
+  }
   const upstash = await upstashPing();
   noStoreJson(res, 200, {
     ok: true,
