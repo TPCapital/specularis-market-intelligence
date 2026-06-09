@@ -1,0 +1,119 @@
+// modules/auto-intel-v15.js
+// Specularis v1.5 runtime bridge: auto-intel first, manual input as override.
+
+const WATCHLIST = ["MU", "MRVL", "NVDA", "AVGO", "AMD", "TSM", "ASML", "PLTR", "ORCL", "SMCI"];
+const AUTO_INTEL_URL = `/api/auto-intel?tickers=${WATCHLIST.join(",")}`;
+const REFRESH_MS = 300000;
+
+function esc(v) {
+  return String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+function toTerminalLite(payload = {}) {
+  const rows = payload.tickers || {};
+  const tickers = Object.keys(rows);
+  return {
+    autoIntelStatus: payload.status || "fallback",
+    meta: { version: "v1.5-auto-intel", generatedAt: payload.generatedAt || Date.now() },
+    stockIntelligencePro: tickers.map((ticker) => {
+      const row = rows[ticker] || {};
+      const q = row.quote || {};
+      const t = row.trend || {};
+      return { ticker, currentPrice: q.price ?? null, dailyChangePercent: q.changePercent ?? null, dataStatus: row.dataQuality?.quote || q.status || "fallback", volumeStatus: row.volume?.status || "unavailable", relativeVolumeStatus: row.volume?.relativeVolume ? "real" : "unavailable", trendStatus: t.status || "unavailable", keySupport: q.previousClose ? `$${q.previousClose}` : null, keyResistance: q.price ? `$${Number((Number(q.price) * 1.04).toFixed(2))}` : null, aiSummary: row.ai?.summary || `${ticker}: auto intelligence fallback active.`, riskFlags: [row.dataQuality?.options === "unavailable" ? "options_unavailable" : null, row.dataQuality?.quote === "fallback" ? "quote_fallback" : null].filter(Boolean), tradeRelevance: row.decision?.action === "tradable" ? "tradable" : row.decision?.action === "avoid" ? "avoid" : "watch", recentNews: row.news || [] };
+    }),
+    optionsIntelligenceLite: tickers.map((ticker) => {
+      const row = rows[ticker] || {};
+      const opt = row.options || {};
+      return { ticker, preferredStructure: opt.preferredStructure || "wait", ivStatus: opt.ivStatus || "unavailable", earningsVolRisk: Boolean(opt.earningsVolRisk), riskLevel: opt.riskLevel || "medium", reason: opt.reason || (opt.status === "unavailable" ? "Auto options intelligence unavailable; wait by default." : `${ticker} options auto-intel from ${opt.source || "provider"}`), invalidationCondition: row.decision?.invalidationLevel || "", notes: opt.error || opt.reason || opt.status || "auto-intel", dataStatus: opt.status || "unavailable" };
+    }),
+    aiDecisionLayer: tickers.map((ticker) => rows[ticker]?.decision).filter(Boolean),
+  };
+}
+
+function bridgeAutoIntel(payload = {}) {
+  const current = window._specularisDashboard || {};
+  const terminalLite = toTerminalLite(payload);
+  const bridged = { ...current, generatedAt: payload.generatedAt || current.generatedAt || Date.now(), autoIntel: payload, terminalLite: { ...(current.terminalLite || {}), ...terminalLite } };
+  window._specularisAutoIntel = payload;
+  window._specularisDashboard = bridged;
+  document.dispatchEvent(new CustomEvent("specularis:autoIntelReady", { detail: payload }));
+  document.dispatchEvent(new CustomEvent("specularis:snapshotReady", { detail: bridged }));
+  return bridged;
+}
+
+async function fetchAutoIntel(reason = "manual") {
+  try {
+    const sep = AUTO_INTEL_URL.includes("?") ? "&" : "?";
+    const res = await fetch(`${AUTO_INTEL_URL}${sep}t=${Math.floor(Date.now() / 300000)}`, { cache: "no-store", headers: { Accept: "application/json" } });
+    if (!res.ok) throw new Error(`auto_intel_http_${res.status}`);
+    const payload = await res.json();
+    bridgeAutoIntel(payload);
+    console.log("[Specularis v1.5] auto-intel ready", { reason, status: payload.status, count: Object.keys(payload.tickers || {}).length });
+  } catch (error) {
+    console.warn("[Specularis v1.5] auto-intel unavailable", error?.message || error);
+  }
+}
+
+function adaptAutoIntelToLegacyEnrichment(payload = {}) {
+  const data = {};
+  for (const [ticker, row] of Object.entries(payload.tickers || {})) {
+    data[ticker] = { ticker, enrichment: { status: "unavailable", tradeRelevance: row.decision?.action || "watch" }, options: row.options || { status: "unavailable" }, news: row.news || [], enrichedAt: payload.generatedAt || Date.now() };
+  }
+  return { status: payload.status || "fallback", version: "v1.5-auto-intel-compat", generatedAt: payload.generatedAt || Date.now(), data };
+}
+
+function patchFetch() {
+  if (window.__specularisAutoIntelFetchPatched) return;
+  window.__specularisAutoIntelFetchPatched = true;
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = async (input, init = {}) => {
+    const url = typeof input === "string" ? input : input?.url || "";
+    if (url.includes("/api/ai-prompt-generate")) {
+      const res = await nativeFetch("/api/ai-router", init);
+      const payload = await res.clone().json().catch(() => null);
+      if (!payload) return res;
+      const compat = { ...payload, source: payload.provider || payload.source || "AI Router", analysis: payload.text || payload.analysis || "" };
+      return new Response(JSON.stringify(compat), { status: 200, headers: { "Content-Type": "application/json; charset=utf-8" } });
+    }
+    if (url.includes("/api/stock-intel-enrichment")) {
+      const tickers = new URL(url, window.location.origin).searchParams.get("tickers") || WATCHLIST.join(",");
+      const res = await nativeFetch(`/api/auto-intel?tickers=${encodeURIComponent(tickers)}`, { cache: "no-store" });
+      const payload = await res.json().catch(() => ({ status: "fallback", tickers: {} }));
+      bridgeAutoIntel(payload);
+      return new Response(JSON.stringify(adaptAutoIntelToLegacyEnrichment(payload)), { status: 200, headers: { "Content-Type": "application/json; charset=utf-8" } });
+    }
+    return nativeFetch(input, init);
+  };
+}
+
+function patchProductCopy() {
+  document.querySelectorAll(".sip-edit-btn,.oil-edit-btn").forEach((btn) => { btn.textContent = "Advanced Override"; });
+  document.querySelectorAll(".ape-title").forEach((el) => { if (/Prompt Export|提示词/.test(el.textContent || "")) el.textContent = "AI 自动分析 / 复核"; });
+  document.querySelectorAll(".ape-desc").forEach((el) => {
+    if (/GPT|Claude|Gemini|提示词/.test(el.textContent || "")) el.textContent = "默认读取自动情报上下文，通过 AI Router 自动分析；复制给 GPT/Claude 只是备用复核路线。";
+  });
+  document.querySelectorAll("button").forEach((btn) => {
+    const text = btn.textContent || "";
+    if (/手动更新|Edit/.test(text)) btn.textContent = "Advanced Override";
+    if (/Gemini 自动分析/.test(text)) btn.textContent = "生成自动市场摘要";
+    if (/网页内提问 Gemini/.test(text)) btn.textContent = "问一个问题";
+  });
+}
+
+function injectStatus() {
+  const target = document.getElementById("sipContainer") || document.getElementById("apeContainer");
+  if (!target || document.getElementById("autoIntelV15Status")) return;
+  const status = window._specularisAutoIntel?.status || "loading";
+  target.insertAdjacentHTML("afterbegin", `<div id="autoIntelV15Status" class="sip-disclaimer">v1.5 Auto Intelligence Terminal · /api/auto-intel ${esc(status)} · manual input is Advanced Override only</div>`);
+}
+
+patchFetch();
+window.__specularisRefreshAutoIntel = () => fetchAutoIntel("console");
+
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => fetchAutoIntel("initial-load"));
+else fetchAutoIntel("initial-load");
+
+setInterval(() => fetchAutoIntel("interval"), REFRESH_MS);
+const observer = new MutationObserver(() => { patchProductCopy(); injectStatus(); });
+observer.observe(document.documentElement, { childList: true, subtree: true });
+setInterval(() => { patchProductCopy(); injectStatus(); }, 2000);
