@@ -11,3 +11,6 @@ window.DASHBOARD_CONFIG = {
   },
 
   marketSymbols: [
+    "SPY",
+    "QQQ",
+    "^ND
