@@ -14,7 +14,7 @@
     },
     {
       "source": "/api/auto-intel",
-      "destination": "/api/stock-intel-enrichment"
+      "destination": "/api/stock-intel-enrichment?__auto_intel=1"
     }
   ],
   "headers": [
