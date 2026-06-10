@@ -2,6 +2,7 @@
 // Backing function for /api/ai-router via Vercel rewrite.
 
 import { routeAI } from "../lib/ai-router.js";
+import { sanitizeProviderError } from "../lib/provider-utils.js";
 
 function noStoreJson(res, status, payload) {
   res.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -34,7 +35,9 @@ export default async function handler(req, res) {
 
   return noStoreJson(res, 200, {
     ...result,
-    source: result.provider || "AI Router",
+    source: "AI Router",
+    displayProvider: "AI Router",
+    error: result.error ? sanitizeProviderError(result.error) : null,
     analysis: result.text || ""
   });
 }
