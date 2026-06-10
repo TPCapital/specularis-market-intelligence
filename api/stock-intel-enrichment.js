@@ -2,6 +2,7 @@
 // Backing function for /api/auto-intel via Vercel rewrite.
 
 import { buildAutoIntel } from "../lib/auto-intel.js";
+import { sanitizeProviderError } from "../lib/provider-utils.js";
 
 function noStoreJson(res, status, payload) {
   res.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -40,10 +41,21 @@ export default async function handler(req, res) {
     if (isLegacyEnrichment) return noStoreJson(res, 200, legacyCompat(payload));
     return noStoreJson(res, 200, payload);
   } catch (error) {
+    const generatedAt = Date.now();
     return noStoreJson(res, 200, {
       status: "fallback",
-      error: error?.message || "auto_intel_failed",
-      generatedAt: Date.now(),
+      dataQuality: "fallback",
+      error: sanitizeProviderError(error),
+      generatedAt,
+      updatedAt: generatedAt,
+      marketRegime: { mode: "FALLBACK_MODE", score: 0, dataQuality: "fallback" },
+      leaders: [],
+      sectors: [],
+      news: [],
+      riskSignals: [{ reason: "auto_intel_failed", dataQuality: "fallback" }],
+      summary: "Auto-intel fallback: live providers are temporarily unavailable.",
+      aiSummary: "AI Router fallback summary: wait for live data confirmation.",
+      sources: { quote: "fallback", news: "fallback", options: "fallback" },
       tickers: {}
     });
   }
