@@ -1,5 +1,6 @@
 import { noStoreJson } from "../lib/utils.js";
 import { getProviderHealth } from "../lib/ai-router.js";
+import { getProviderCircuitState, safeFetchText, sanitizeProviderError } from "../lib/provider-utils.js";
 
 function envValue(name) {
   const value = process.env[name];
@@ -11,14 +12,15 @@ async function upstashPing() {
   const token = envValue("UPSTASH_REDIS_REST_TOKEN");
   if (!base || !token) return { configured: false, ok: false, adapter: "memory" };
   try {
-    const response = await fetch(`${base}/ping`, {
-      cache: "no-store",
+    const text = await safeFetchText(`${base}/ping`, {
+      providerName: "upstash",
+      timeoutMs: 2500,
       headers: { Authorization: `Bearer ${token}` }
     });
-    const payload = await response.json().catch(() => null);
-    return { configured: true, ok: response.ok, adapter: "upstash", status: response.status, result: payload?.result || null };
+    const payload = JSON.parse(text || "{}");
+    return { configured: true, ok: true, adapter: "upstash", status: 200, result: payload?.result || null };
   } catch (error) {
-    return { configured: true, ok: false, adapter: "upstash", error: error.message };
+    return { configured: true, ok: false, adapter: "upstash", error: sanitizeProviderError(error) };
   }
 }
 
@@ -32,6 +34,7 @@ export default async function handler(req, res) {
     ok: true,
     generatedAt: Date.now(),
     cache: upstash,
+    providerCircuit: getProviderCircuitState(),
     env: {
       FINNHUB_API_KEY: !!envValue("FINNHUB_API_KEY"),
       TWELVEDATA_API_KEY: !!envValue("TWELVEDATA_API_KEY"),
