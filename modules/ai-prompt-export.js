@@ -44,37 +44,52 @@ function displayAiSource(value) {
 }
 
 function buildPrompt(lang, { sipState, oilState, kolState, marketRegime, decisions }) {
-  const now = new Date().toLocaleString("zh-CN", { timeZone: "America/New_York", hour12: false });
+  const now = lang === "en"
+    ? new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour12: false })
+    : new Date().toLocaleString("zh-CN", { timeZone: "America/New_York", hour12: false });
   const regimeStr = marketRegime?.label || marketRegime?.mode || "未知";
   const regimeScore = marketRegime?.score ?? "--";
   const kolEntries = kolState?.entries || [];
 
+  // Build language-aware data lines
   const sipLines = TICKERS.map((t) => {
     const s = sipState?.[t] || {};
     const price = s.currentPrice ? `$${s.currentPrice}` : "N/A";
     const change = s.dailyChangePercent != null ? `${s.dailyChangePercent}%` : "N/A";
     const news = Array.isArray(s.recentNews) && s.recentNews.length > 0
       ? (typeof s.recentNews[0] === "object" ? s.recentNews[0].title : s.recentNews[0])
-      : "无";
+      : (lang === "en" ? "none" : "无");
+    if (lang === "en") {
+      return `  ${t}: price=${price} chg=${change} trend=${s.trendStatus || "N/A"} analyst=${s.analystTone || "N/A"} earnings=${s.earningsDate || "unknown"} news=${news}`;
+    }
     return `  ${t}: 价格${price} 涨跌${change} 趋势${trendZh(s.trendStatus)} 分析师${s.analystTone || "N/A"} 财报${s.earningsDate || "未知"} 新闻:${news}`;
   }).join("\n");
 
   const oilLines = TICKERS.map((t) => {
     const o = oilState?.[t] || {};
+    if (lang === "en") {
+      return `  ${t}: structure=${o.preferredStructure || "wait"} IV=${o.ivStatus || "N/A"} earnings_risk=${o.earningsVolRisk ? "yes" : "no"} risk=${o.riskLevel || "N/A"}`;
+    }
     return `  ${t}: 结构${STRUCTURE_LABELS[o.preferredStructure] || o.preferredStructure || "wait"} IV${o.ivStatus || "N/A"} 财报风险${o.earningsVolRisk ? "是" : "否"} 风险${o.riskLevel || "N/A"}`;
   }).join("\n");
 
   const kolLines = kolEntries.length > 0
-    ? kolEntries.slice(0, 6).map((k) =>
-        `  @${k.kolHandle}: ${k.stance} (${k.convictionLevel}信心) [${k.signalType}] 涉及:${(k.mentionedTickers || []).join(",")} - ${(k.keyArguments || [k.aiDistillationSummary || "无论点"])[0]}`
-      ).join("\n")
-    : "  暂无 KOL 输入";
+    ? kolEntries.slice(0, 6).map((k) => {
+        if (lang === "en") {
+          return `  @${k.kolHandle}: ${k.stance} (conviction:${k.convictionLevel}) [${k.signalType}] tickers:${(k.mentionedTickers || []).join(",")} - ${(k.keyArguments || [k.aiDistillationSummary || "no thesis"])[0]}`;
+        }
+        return `  @${k.kolHandle}: ${k.stance} (${k.convictionLevel}信心) [${k.signalType}] 涉及:${(k.mentionedTickers || []).join(",")} - ${(k.keyArguments || [k.aiDistillationSummary || "无论点"])[0]}`;
+      }).join("\n")
+    : (lang === "en" ? "  No KOL input" : "  暂无 KOL 输入");
 
   const decisionLines = decisions && decisions.length > 0
-    ? decisions.filter((d) => d.score !== null).slice(0, 5).map((d) =>
-        `  ${d.ticker}: ${d.score}/10 [${d.rating}] 动作:${d.action} 工具:${d.preferredVehicle} 进场:${d.keyEntryZone || "N/A"} 止损:${d.invalidationLevel || "N/A"} 目标:${d.targetZone || "N/A"}`
-      ).join("\n") || "  暂无有效评分"
-    : "  暂无有效评分";
+    ? decisions.filter((d) => d.score !== null).slice(0, 5).map((d) => {
+        if (lang === "en") {
+          return `  ${d.ticker}: ${d.score}/10 [${d.rating}] action=${d.action} vehicle=${d.preferredVehicle} entry=${d.keyEntryZone || "N/A"} stop=${d.invalidationLevel || "N/A"} target=${d.targetZone || "N/A"}`;
+        }
+        return `  ${d.ticker}: ${d.score}/10 [${d.rating}] 动作:${d.action} 工具:${d.preferredVehicle} 进场:${d.keyEntryZone || "N/A"} 止损:${d.invalidationLevel || "N/A"} 目标:${d.targetZone || "N/A"}`;
+      }).join("\n") || (lang === "en" ? "  No valid scores" : "  暂无有效评分")
+    : (lang === "en" ? "  No valid scores" : "  暂无有效评分");
 
   if (lang === "en") {
     return `
@@ -230,7 +245,13 @@ export function renderAIPromptExport(containerId, getModuleStates) {
       const s = sipState[ticker] || (tl.stockIntelligencePro || []).find((x) => x.ticker === ticker) || {};
       const o = oilState[ticker] || (tl.optionsIntelligenceLite || []).find((x) => x.ticker === ticker) || {};
       const risks = Array.isArray(s.riskFlags) && s.riskFlags.length ? s.riskFlags.join("/") : "none";
-      return `${ticker}: price=${fmt(s.currentPrice)} change=${fmt(s.dailyChangePercent)}% trend=${trendZh(s.trendStatus)} risks=${risks}; option=${STRUCTURE_LABELS[o.preferredStructure] || o.preferredStructure || "wait"} iv=${o.ivStatus || "N/A"} optionRisk=${o.riskLevel || "N/A"}`;
+      const trendLabel = lang === "en"
+        ? (s.trendStatus || "unknown")
+        : trendZh(s.trendStatus);
+      const structLabel = lang === "en"
+        ? (o.preferredStructure || "wait")
+        : (STRUCTURE_LABELS[o.preferredStructure] || o.preferredStructure || "wait");
+      return `${ticker}: price=${fmt(s.currentPrice)} change=${fmt(s.dailyChangePercent)}% trend=${trendLabel} risks=${risks}; option=${structLabel} iv=${o.ivStatus || "N/A"} risk=${o.riskLevel || "N/A"}`;
     }).join("\n");
 
     const topDecisionLines = decisions
@@ -334,17 +355,27 @@ Do not fabricate GEX, options flow, insider data, or unavailable IV. If data is 
     geminiCooldownTimer = setInterval(tick, 1000);
   }
 
-  function generateAndShow(lang) {
-    const prompt = buildCurrentPrompt(lang);
+  function generateAndShow(targetLang) {
+    // Hard-enforce: "en" button always produces English, "zh" always Chinese
+    const lang = (targetLang === "en") ? "en" : "zh";
+    // Optionally include the user question from the textarea
+    const questionInput = document.getElementById("apeQuestionInput");
+    const userQuestion = (questionInput?.value || "").trim();
+    const prompt = userQuestion
+      ? buildCompactPrompt(lang, userQuestion)
+      : buildCurrentPrompt(lang);
     removeOutputs();
+    const langLabel = lang === "en" ? "English Prompt" : "中文提示词";
     const outputHtml = `
 <div class="ape-output" id="apeManualPromptOutput">
   <div class="ape-output-header">
-    <span class="ape-output-label">Generated Prompt - ${lang === "en" ? "English" : "中文"}</span>
+    <span class="ape-output-label">Generated ${escHtml(langLabel)}</span>
     <button class="ape-copy-btn" id="apeCopyBtn">复制 Copy</button>
   </div>
   <textarea class="ape-textarea" id="apePromptText" readonly>${escHtml(prompt)}</textarea>
-  <p class="ape-note">可手动复制到 GPT Plus / Claude Pro 等工具。AI Router 自动分析会使用更短的 compact prompt，避免触发 rate limit。</p>
+  <p class="ape-note">${lang === "en"
+    ? "Copy to GPT-4 / Claude Pro. AI Router uses a shorter compact prompt to avoid rate limits."
+    : "可手动复制到 GPT Plus / Claude Pro 等工具。AI Router 自动分析使用更短的 compact prompt。"}</p>
 </div>`;
     container.insertAdjacentHTML("beforeend", outputHtml);
     document.getElementById("apeCopyBtn").addEventListener("click", () => {

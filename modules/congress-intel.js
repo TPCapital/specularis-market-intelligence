@@ -10,13 +10,8 @@
 //   • api.stocktwits.com/api/2/...  — Social sentiment (public JSON)
 //   • reddit.com/r/*.json           — Reddit hot posts (public JSON)
 
-const HOUSE_API    = "https://housestockwatcher.com/api";
-const SENATE_API   = "https://senatestockwatcher.com/api";
-const ST_TRENDING  = "https://api.stocktwits.com/api/2/trending/symbols.json?limit=30";
-const ST_STREAM    = (s) => `https://api.stocktwits.com/api/2/streams/symbol/${s}.json?limit=8`;
-const REDDIT_WSB   = "https://www.reddit.com/r/wallstreetbets/hot.json?limit=25";
-const REDDIT_STKS  = "https://www.reddit.com/r/stocks/hot.json?limit=15";
-const REDDIT_INV   = "https://www.reddit.com/r/investing/hot.json?limit=10";
+// ✅ All data fetched server-side via /api/congress-intel (no CORS issues)
+const CONGRESS_API = "/api/congress-intel";
 
 const WATCHLIST = ["NVDA","MSFT","AAPL","AMD","MRVL","MU","AVGO","TSM","ASML","PLTR","ORCL","SMCI","META","GOOGL","AMZN","TSLA","SPY","QQQ"];
 const WL_SET = new Set(WATCHLIST);
@@ -205,7 +200,7 @@ async function getReddit() {
   return { ok: all.length > 0, posts: all.slice(0, 18), hotTickers };
 }
 
-// ── Intelligence synthesis ────────────────────────────────────────────────────
+// ── Intelligence synthesis (mirrored from server for local use) ──────────────
 function synthesize(house, senate, trending, wlSentiment, reddit) {
   const all = [...house.trades, ...senate.trades];
 
@@ -407,24 +402,36 @@ export async function renderCongressIntel(containerId) {
     return;
   }
 
-  // Fetch all sources in parallel
-  const [house, senate, trending, wlSentiment, reddit] = await Promise.all([
-    getHouseTrades(),
-    getSenateTrades(),
-    getStockTwitsTrending(),
-    getWLSentiment(),
-    getReddit(),
-  ]);
+  // Single server-side call — no CORS, all sources aggregated on Vercel
+  const apiData = await fetchAllData();
 
-  const intel = synthesize(house, senate, trending, wlSentiment, reddit);
-  _cache = { house, senate, trending, wlSentiment, reddit, intel };
+  if (!apiData) {
+    el.innerHTML = `<div class="ci-error">
+      <div class="ci-error-icon">⚠</div>
+      <div class="ci-error-title">数据获取失败</div>
+      <div class="ci-error-desc">服务器端数据源暂时不可用，请稍后刷新。<br>
+        数据来源：housestockwatcher.com · senatestockwatcher.com · StockTwits · Reddit
+      </div>
+    </div>`;
+    return;
+  }
+
+  // Server returns pre-structured data
+  const house      = apiData.congress?.house    || { ok: false, trades: [] };
+  const senate     = apiData.congress?.senate   || { ok: false, trades: [] };
+  const trending   = apiData.social?.trending   || { ok: false, symbols: [] };
+  const wlSentiment = apiData.social?.wlSentiment || [];
+  const reddit     = apiData.social?.reddit     || { ok: false, posts: [], hotTickers: [] };
+  const intel      = apiData.intel              || synthesize(house, senate, trending, wlSentiment, reddit);
+
+  _cache = { house, senate, trending, wlSentiment, reddit, intel, sources: apiData.sources };
   _lastFetch = Date.now();
 
   renderFromData(el, _cache);
 }
 
 function renderFromData(el, data) {
-  const { house, senate, trending, wlSentiment, reddit, intel } = data;
+  const { house, senate, trending, wlSentiment, reddit, intel, sources } = data;
 
   // All trades combined, watchlist first
   const allTrades = [
@@ -438,10 +445,10 @@ function renderFromData(el, data) {
   el.innerHTML = `
     <!-- ── Status bar ─────────────────────────────── -->
     <div class="ci-status-bar">
-      <span>众议院 ${srcDot(house.ok)}</span>
-      <span>参议院 ${srcDot(senate.ok)}</span>
-      <span>StockTwits ${srcDot(trending.ok)}</span>
-      <span>Reddit ${srcDot(reddit.ok)}</span>
+      <span>众议院 ${srcDot(sources?.house === "live" || house.ok)}</span>
+      <span>参议院 ${srcDot(sources?.senate === "live" || senate.ok)}</span>
+      <span>StockTwits ${srcDot(sources?.stocktwits === "live" || trending.ok)}</span>
+      <span>Reddit ${srcDot(sources?.reddit === "live" || reddit.ok)}</span>
       <span class="ci-total">近90天申报 · 共 ${intel.total} 条</span>
     </div>
 

@@ -212,8 +212,32 @@ function renderStockCard(ticker, entry) {
     ? `<ul class="sip-news">${entry.recentNews.slice(0, 2).map((n) =>
         `<li>${escHtml(typeof n === "object" ? n.title || n : n)}</li>`).join("")}</ul>`
     : `<p class="sip-muted">暂无最新新闻</p>`;
+  const RISK_FLAG_ZH = {
+    // Price action
+    "chasing_risk":       "追涨风险",
+    "price_pressure":     "价格承压",
+    "extended":           "超买延伸",
+    "gap_risk":           "跳空风险",
+    // Fundamental
+    "earnings_event":     "财报临近",
+    "high_beta":          "高波动β",
+    "high_iv":            "期权IV偏高",
+    "low_volume":         "成交量不足",
+    "sector_risk":        "板块风险",
+    // Flow / analyst
+    "put_flow":           "Put沉重流",
+    "analyst_bearish":    "分析师看空",
+    // Data quality (show as muted)
+    "options_unavailable":"期权数据缺失",
+    "quote_fallback":     "报价备用源",
+  };
   const riskHtml = Array.isArray(entry.riskFlags) && entry.riskFlags.length > 0
-    ? `<div class="sip-risk">${entry.riskFlags.map((f) => `<span>⚠️ ${escHtml(f)}</span>`).join("")}</div>`
+    ? `<div class="sip-risk">${entry.riskFlags.map((f) => {
+        // Handle target:XXXX format
+        if (f.startsWith("target:")) return `<span>🎯 目标价 $${escHtml(f.slice(7))}</span>`;
+        const zh = RISK_FLAG_ZH[f];
+        return `<span>⚠️ ${escHtml(zh || f)}</span>`;
+      }).join("")}</div>`
     : "";
   const earningsHtml = entry.earningsDate
     ? `<span class="sip-earnings">财报: ${escHtml(entry.earningsDate)}</span>` : "";
