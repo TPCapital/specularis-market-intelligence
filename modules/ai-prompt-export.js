@@ -500,7 +500,10 @@ Do not fabricate GEX, options flow, insider data, or unavailable IV. If data is 
     <div class="ape-output-header">
       <span class="ape-output-label">Web AI Q&amp;A / 网页内问答</span>
     </div>
-    <textarea class="ape-textarea" id="apeQuestionInput" rows="4" placeholder="输入你的问题，例如：今天 AMD 和 NVDA 哪个更适合做 0DTE？风险点是什么？"></textarea>
+    <textarea class="ape-textarea" id="apeQuestionInput" rows="4"
+      data-placeholder-zh="输入你的问题，例如：今天 AMD 和 NVDA 哪个更适合做 0DTE？风险点是什么？"
+      data-placeholder-en="Ask a question, e.g.: Which is more tradable today — AMD or NVDA for 0DTE? What are the key risks?"
+      placeholder="输入你的问题，例如：今天 AMD 和 NVDA 哪个更适合做 0DTE？风险点是什么？"></textarea>
     <div class="ape-btn-row">
       <button class="ape-gen-btn" id="apeBtnAskGemini">网页内 AI 分析</button>
       <button class="ape-copy-btn" id="apeClearQuestionBtn">清空</button>
@@ -528,6 +531,24 @@ Do not fabricate GEX, options flow, insider data, or unavailable IV. If data is 
   });
   document.getElementById("apeBtnZh").addEventListener("click", () => generateAndShow("zh"));
   document.getElementById("apeBtnEn").addEventListener("click", () => generateAndShow("en"));
+
+  // Update textarea placeholder based on current language
+  function updatePlaceholderLang() {
+    const ta = document.getElementById("apeQuestionInput");
+    if (!ta) return;
+    const isEn = document.documentElement.dataset.lang === "en";
+    const ph = isEn
+      ? (ta.dataset.placeholderEn || "Ask a question, e.g.: Which is more tradable today — AMD or NVDA? What are the key risks?")
+      : (ta.dataset.placeholderZh || "输入你的问题，例如：今天 AMD 和 NVDA 哪个更适合做 0DTE？风险点是什么？");
+    ta.setAttribute("placeholder", ph);
+    if (ta.value === "" || ta.value === ta.dataset.lastPlaceholder) {
+      ta.dataset.lastPlaceholder = ph;
+    }
+  }
+  updatePlaceholderLang();
+  // Watch for language changes
+  const _langObserver = new MutationObserver(() => updatePlaceholderLang());
+  _langObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-lang"] });
 
   document.addEventListener("specularis:snapshotReady", () => {
     renderAIPromptExport(containerId, getModuleStates);

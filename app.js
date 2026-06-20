@@ -2283,14 +2283,46 @@ function sourceRole(key) {
   }[key];
 }
 
+// Gauge config: [min, max, zones: [[upTo, color, label]...]]
+const GAUGE_CFG = {
+  "Fear & Greed": { min:0,  max:100, zones:[[25,"#ff3d57","极度恐慌"],[45,"#d4ab4e","恐慌"],[55,"#7a8194","中性"],[75,"#40d4e8","偏乐观"],[100,"#1adb7e","极度贪婪"]] },
+  "RSI":          { min:0,  max:100, zones:[[30,"#ff3d57","超卖"],[50,"#d4ab4e","弱势"],[70,"#7a8194","中性"],[80,"#40d4e8","偏强"],[100,"#ff3d57","超买"]] },
+  "Put/Call":     { min:0,  max:2.0, zones:[[0.6,"#1adb7e","看多"],[0.9,"#40d4e8","偏多"],[1.1,"#7a8194","中性"],[1.4,"#d4ab4e","偏空"],[2.0,"#ff3d57","极度恐慌"]] },
+};
+
+function makeMiniGauge(id, value, min, max) {
+  const cfg = GAUGE_CFG[id];
+  if (!cfg) return "";
+  const pct = Math.max(0, Math.min(100, ((Number(value) - cfg.min) / (cfg.max - cfg.min)) * 100));
+  // Find zone color and label
+  let zoneColor = "#7a8194", zoneLabel = "";
+  for (const [upTo, color, label] of cfg.zones) {
+    const upToPct = ((upTo - cfg.min) / (cfg.max - cfg.min)) * 100;
+    if (pct <= upToPct) { zoneColor = color; zoneLabel = label; break; }
+  }
+  return `<div class="mg-wrap">
+    <div class="mg-bar-track">
+      <div class="mg-bar-fill" style="width:${pct.toFixed(1)}%;background:${zoneColor}"></div>
+      <div class="mg-needle" style="left:${pct.toFixed(1)}%"></div>
+    </div>
+    <div class="mg-labels">
+      <span style="color:#4a5068">${escapeHtml(String(cfg.min))}</span>
+      <span class="mg-zone" style="color:${zoneColor}">${escapeHtml(zoneLabel)}</span>
+      <span style="color:#4a5068">${escapeHtml(String(cfg.max))}</span>
+    </div>
+  </div>`;
+}
+
 function renderMetricGrid(selector, items, type = "index") {
   html(selector, items.map((item) => {
     const inverse = ["VIX", "TNX", "GOLD", "DXY", "Put/Call"].includes(item.id);
+    const gauge = type === "sentiment" ? makeMiniGauge(item.id, item.value, 0, 100) : "";
     return `
       <article class="metric-card quality-${escapeHtml(item.dataQuality || "snapshot")}">
         <div class="metric-head"><span>${escapeHtml(displayMetricId(item.id))}</span><span>${escapeHtml(displayMetricName(item.name || ""))}</span></div>
         <div class="metric-value">${formatNumber(item.value)}</div>
         <div class="metric-change ${changeClass(item.change, inverse)}">${type === "sentiment" && item.id !== "Put/Call" ? signedRaw(item.change) : signed(item.change)}</div>
+        ${gauge}
         <p>${escapeHtml(item.note)}</p>
       </article>
     `;

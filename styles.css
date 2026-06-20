@@ -1620,10 +1620,15 @@ body[data-risk="neutral"]  .strategy-panel h2 { color: var(--gold); }
 .decision-card .kpi,
 .watch-card .kpi {
   margin: 8px 0 4px;
-  font-size: var(--t-kpi-md);
+  font-size: clamp(16px, 2.8vw, 42px);
   font-weight: 900;
-  line-height: 0.94;
+  line-height: 1.0;
   font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .pro-card h3, .report-card h3, .decision-card h3, .watch-card h3 {
@@ -2102,6 +2107,48 @@ body[data-risk="neutral"]  .strategy-panel h2 { color: var(--gold); }
 .p2-completion-card,
 [data-internal-progress="true"] { display: none; }
 
+
+/* ── Mini Gauge — Sentiment Metric Cards ─────────────────── */
+.mg-wrap {
+  margin: 8px 0 6px;
+}
+.mg-bar-track {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.07);
+  overflow: visible;
+}
+.mg-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.6s cubic-bezier(0.34,1.56,0.64,1), background 0.4s ease;
+}
+.mg-needle {
+  position: absolute;
+  top: -3px;
+  width: 3px;
+  height: 14px;
+  background: #fff;
+  border-radius: 999px;
+  transform: translateX(-50%);
+  box-shadow: 0 0 6px rgba(255,255,255,0.6);
+  transition: left 0.6s cubic-bezier(0.34,1.56,0.64,1);
+}
+.mg-labels {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 5px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.mg-zone {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
 /* ── 39. RESPONSIVE ──────────────────────────────────────── */
 @media (max-width: 1500px) {
   .structure-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -2189,16 +2236,15 @@ body[data-risk="neutral"]  .strategy-panel h2 { color: var(--gold); }
 .ci-status-bar {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 12px;
   align-items: center;
-  padding: 10px 14px;
-  margin-bottom: 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  background: var(--surface-0);
-  font-size: 11px;
+  padding: 6px 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 .ci-src-live   { color: var(--green); }
@@ -2750,9 +2796,7 @@ body[data-risk="neutral"]  .strategy-panel h2 { color: var(--gold); }
 .ci-confluence-block {
   background-color: #1a1508;
 }
-.ci-status-bar {
-  background-color: #0d0f18;
-}
+
 .ci-footnote {
   background-color: #0d0f18;
 }
