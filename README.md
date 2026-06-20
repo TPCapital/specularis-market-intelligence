@@ -51,8 +51,29 @@ Deep-dive cards for 10 core semiconductor + AI names (NVDA, MRVL, MU, AVGO, AMD,
 ### ⚡ Options Intelligence Lite (Tab 4)
 Proxy volatility and options structure signals for each watchlist name. Shows IV structure (bullish/bearish/neutral), risk level, earnings warnings, and reasoning. Designed for traders who want directional context without a full options feed subscription.
 
-### 🧠 KOL + AI Decision Layer (Tab 5)
-Manual KOL (key opinion leader) input system + AI Decision Layer that synthesizes market regime + price momentum + catalyst quality + options signals + KOL stance into an A+ / A / B / C / AVOID rating. Outputs a structured AI prompt for GPT-4 or Claude Pro for human-in-the-loop decision making.
+### 🏛️ Congress Intel + AI Decision Layer (Tab 5)
+**全自动信息抓取，零手动输入。** 取代原 KOL 手动蒸馏模块，改为自动聚合三类公开免费数据源：
+
+**国会持股情报（STOCK Act 申报）**
+- 众议院交易数据：`housestockwatcher.com/api` — 社区整理的 House 持股申报 JSON，免费无需密钥
+- 参议院交易数据：`senatestockwatcher.com/api` — 同上，Senate 版本
+- 国会活跃榜：按股票代码汇总近90天买入/卖出次数，标注涉及议员人数
+- 观察池优先排序：NVDA / AMD / PLTR 等核心标的优先显示并高亮标注
+
+**社交情绪（StockTwits）**
+- `api.stocktwits.com/api/2/trending/symbols.json` — 实时热搜榜，含情绪比例（看多/看空%）
+- 观察池7只核心标的逐一拉取情绪流，展示最新3条帖子预览
+- 零 API 密钥，公开 JSON 端点直接调用
+
+**Reddit 社区信号**
+- `r/wallstreetbets`、`r/stocks`、`r/investing` 热帖 JSON 流（Reddit 官方免费端点）
+- 自动提取帖子中的股票代码，生成标的热度频率榜
+- 显示评分 > 10 的热帖，标注观察池相关标的
+
+**共振信号（Confluence）**
+国会持股变动 × 社交媒体热搜 同时出现的标的，触发 "⚡ 共振" 高亮警报——这是最值得关注的交叉信号。
+
+AI Decision Layer 保留不变，综合评分维度更新为：市场环境 + 股价动能 + 催化质量 + 期权 + 社交共振 + 风控。
 
 ### 📋 Daily Close Report (Tab 6)
 End-of-day review template: index performance, top movers, sector rotation, what worked, what didn't.
@@ -102,6 +123,12 @@ Specularis works out of the box with no API keys — it falls back to cached dat
 | `FRED_API_KEY` | [fred.stlouisfed.org](https://fred.stlouisfed.org/docs/api/api_key.html) | Macro data: yield curve, CPI, PCE | Free |
 | `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | [upstash.com](https://upstash.com) | Persistent snapshot cache across deployments | Free tier available |
 | `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` | [supabase.com](https://supabase.com) | Persistent cache alternative (Postgres) | Free tier available |
+
+> **Tab 5 (Congress Intel) 完全无需 API 密钥。** 以下数据源均为免费公开端点，直接调用：
+> - `housestockwatcher.com/api` — 众议院 STOCK Act 申报
+> - `senatestockwatcher.com/api` — 参议院 STOCK Act 申报  
+> - `api.stocktwits.com/api/2/*` — StockTwits 公开 JSON API
+> - `reddit.com/r/*.json` — Reddit 官方公开 JSON 端点
 
 None of these are required for the terminal to function. The system degrades gracefully:
 

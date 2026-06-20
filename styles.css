@@ -2161,3 +2161,521 @@ body[data-risk="neutral"]  .strategy-panel h2 { color: var(--gold); }
 .section-title.compact { margin-bottom: 8px; }
 .source-section { margin-top: 8px; }
 .flow-summary-card { margin-bottom: 10px; }
+
+/* =========================================================
+   CONGRESS INTEL MODULE — Component Styles
+   政要持股情报 / 社交情报 视觉系统
+   ========================================================= */
+
+/* ── Source status bar ───────────────────────────────────── */
+.ci-status-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-0);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.ci-src-live   { color: var(--green); }
+.ci-src-off    { color: var(--red); }
+.ci-src-delay  { color: var(--gold); }
+.ci-total      { margin-left: auto; color: var(--text-muted); font-weight: 600; text-transform: none; letter-spacing: 0; }
+
+/* ── Confluence signal block ────────────────────────────── */
+.ci-confluence-block {
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border: 1px solid rgba(212,171,78,0.36);
+  border-left: 4px solid var(--gold);
+  border-radius: var(--r-md);
+  background: radial-gradient(circle at 0% 0%, rgba(212,171,78,0.10), transparent 40%),
+              linear-gradient(180deg, rgba(22,24,32,0.98), rgba(7,8,13,0.98));
+  animation: glowGold 3.2s ease-in-out infinite alternate;
+}
+.ci-confluence-title {
+  font-size: 15px;
+  font-weight: 900;
+  color: var(--gold);
+  margin-bottom: 5px;
+  letter-spacing: -0.01em;
+}
+.ci-confluence-desc {
+  font-size: var(--t-sm);
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+.ci-confluence-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ci-conf-tag {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 12px;
+  border: 1px solid rgba(212,171,78,0.30);
+  border-radius: var(--r-sm);
+  background: rgba(212,171,78,0.06);
+}
+.ci-conf-tag strong {
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--gold);
+  letter-spacing: -0.02em;
+}
+.ci-conf-tag span {
+  font-size: var(--t-xs);
+  color: var(--text-muted);
+  font-weight: 700;
+}
+.ci-confluence { color: var(--gold); font-size: 11px; font-weight: 900; }
+
+/* ── Two-column layout: Activity Rank + Trade Table ──────── */
+.ci-main-grid {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 14px;
+  margin-bottom: 22px;
+}
+
+.ci-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: var(--t-h3);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.ci-panel-icon { font-size: 16px; }
+.ci-panel-title em {
+  margin-left: auto;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 0;
+}
+
+/* ── Congress Activity Rank ─────────────────────────────── */
+.ci-left-col, .ci-right-col {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 16px;
+}
+
+.ci-rank-row {
+  display: grid;
+  grid-template-columns: 56px 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--t-sm);
+  transition: background 0.16s;
+}
+.ci-rank-row:last-child { border-bottom: 0; }
+.ci-rank-row:hover { background: rgba(255,255,255,0.04); }
+.ci-rank-row.ci-rank-wl .ci-rank-sym { color: var(--gold); }
+
+.ci-rank-sym {
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+.ci-rank-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ci-buy-bar {
+  display: block;
+  height: 4px;
+  min-width: 4px;
+  border-radius: 999px;
+  background: var(--green);
+  opacity: 0.75;
+}
+.ci-sell-bar {
+  display: block;
+  height: 4px;
+  min-width: 4px;
+  border-radius: 999px;
+  background: var(--red);
+  opacity: 0.75;
+}
+.ci-rank-nums {
+  display: flex;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.ci-rank-meta {
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+  text-align: right;
+}
+.ci-net-up   { color: var(--green); font-weight: 800; }
+.ci-net-dn   { color: var(--red);   font-weight: 800; }
+.ci-net-flat { color: var(--text-muted); }
+
+/* ── Trade Table ─────────────────────────────────────────── */
+.ci-trade-table { display: flex; flex-direction: column; }
+.ci-trade-head {
+  display: grid;
+  grid-template-columns: 1.6fr 56px 80px 90px 80px;
+  gap: 8px;
+  padding: 6px 0 8px;
+  border-bottom: 1px solid var(--border-md);
+  color: var(--text-muted);
+  font-size: var(--t-xs);
+  font-weight: 800;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+}
+.ci-trade-row {
+  display: grid;
+  grid-template-columns: 1.6fr 56px 80px 90px 80px;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--t-sm);
+  transition: background 0.16s;
+}
+.ci-trade-row:last-child { border-bottom: 0; }
+.ci-trade-row:hover { background: rgba(255,255,255,0.04); }
+.ci-trade-row.ci-row-wl { background: rgba(212,171,78,0.04); }
+.ci-trade-row.ci-row-wl .ci-ticker { color: var(--gold); }
+
+.ci-member {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  color: var(--text);
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ci-member em {
+  font-style: normal;
+  font-size: var(--t-xs);
+  color: var(--text-muted);
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  flex-shrink: 0;
+}
+.ci-ticker {
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+.ci-amount {
+  color: var(--text-soft);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ci-date { color: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+
+/* Trade type badges */
+.ci-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+.ci-buy     { background: rgba(26,219,126,0.14); color: var(--green); border: 1px solid rgba(26,219,126,0.28); }
+.ci-sell    { background: rgba(255,61,87,0.12);  color: var(--red);   border: 1px solid rgba(255,61,87,0.26); }
+.ci-neutral { background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border); }
+
+/* ── Section divider ─────────────────────────────────────── */
+.ci-section-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 22px 0 16px;
+}
+.ci-section-divider::before,
+.ci-section-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.ci-section-divider span {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ── StockTwits Trending Grid ────────────────────────────── */
+.ci-trending-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.ci-trend-card {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+  transition: border-color 0.20s, transform 0.20s;
+}
+.ci-trend-card:hover { transform: translateY(-2px); border-color: var(--border-md); }
+.ci-trend-card.ci-trend-wl {
+  border-color: rgba(212,171,78,0.32);
+  background: rgba(212,171,78,0.04);
+}
+.ci-trend-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+.ci-trend-header strong {
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+.ci-trend-name {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-bottom: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ci-sent-bar {
+  display: flex;
+  height: 5px;
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 5px;
+}
+.ci-sent-bull { background: var(--green); transition: width 0.5s ease; }
+.ci-sent-bear { background: var(--red);   transition: width 0.5s ease; }
+.ci-sent-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+.ci-trend-meta {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
+/* ── Watchlist Sentiment Row ────────────────────────────── */
+.ci-wl-sentiment {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.ci-wl-sent-card {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+}
+.ci-wl-sym {
+  font-size: 17px;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  margin-bottom: 8px;
+  color: var(--text);
+}
+.ci-wl-msgs { margin-top: 8px; }
+.ci-msg-preview {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.40;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border-left: 2px solid var(--border);
+  background: var(--surface-0);
+}
+.ci-msg-preview.msg-bull { border-left-color: var(--green); }
+.ci-msg-preview.msg-bear { border-left-color: var(--red); }
+.ci-msg-user {
+  display: block;
+  color: var(--text-muted);
+  font-weight: 700;
+  font-size: 10px;
+  margin-bottom: 3px;
+}
+
+/* ── Reddit Feed ─────────────────────────────────────────── */
+.ci-reddit-tickers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-0);
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+.ci-tick-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-1);
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-soft);
+}
+.ci-tick-tag em {
+  font-style: normal;
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 10px;
+}
+.ci-tick-tag.ci-tick-wl {
+  border-color: rgba(212,171,78,0.35);
+  color: var(--gold);
+  background: rgba(212,171,78,0.06);
+}
+.ci-tick-tag.ci-tick-wl em { color: rgba(212,171,78,0.70); }
+
+.ci-reddit-feed { display: flex; flex-direction: column; gap: 8px; }
+.ci-reddit-row {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+  transition: border-color 0.18s, background 0.18s;
+}
+.ci-reddit-row:hover { border-color: var(--border-md); background: var(--surface-2); }
+
+.ci-reddit-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+.ci-sub {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(176,136,255,0.12);
+  color: var(--violet);
+  border: 1px solid rgba(176,136,255,0.20);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+.ci-flair {
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.ci-score { color: var(--gold); font-weight: 800; }
+.ci-cmts  { color: var(--text-muted); }
+.ci-rtime { color: var(--text-faint); margin-left: auto; }
+
+.ci-reddit-title {
+  font-size: var(--t-body);
+  font-weight: 700;
+  line-height: 1.40;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+.ci-reddit-tix { display: flex; flex-wrap: wrap; gap: 5px; }
+
+/* ── Loading / Error states ──────────────────────────────── */
+.ci-loading { padding: 20px; }
+.ci-shimmer {
+  height: 16px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--surface-1) 0%, var(--surface-2) 50%, var(--surface-1) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+}
+.ci-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 36px 20px;
+  text-align: center;
+}
+.ci-error-icon  { font-size: 36px; color: var(--gold); }
+.ci-error-title { font-size: 18px; font-weight: 800; color: var(--text); }
+.ci-error-desc  { font-size: var(--t-body); color: var(--text-muted); line-height: 1.50; max-width: 480px; }
+.ci-empty { padding: 18px; color: var(--text-muted); font-size: var(--t-body); text-align: center; }
+
+/* ── Footnote ────────────────────────────────────────────── */
+.ci-footnote {
+  margin-top: 20px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-0);
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+/* ── Responsive ──────────────────────────────────────────── */
+@media (max-width: 1100px) {
+  .ci-main-grid { grid-template-columns: 1fr; }
+  .ci-trade-head,
+  .ci-trade-row { grid-template-columns: 1fr 50px 72px 80px 70px; }
+}
+@media (max-width: 700px) {
+  .ci-trending-grid { grid-template-columns: repeat(3, 1fr); }
+  .ci-wl-sentiment  { grid-template-columns: repeat(2, 1fr); }
+  .ci-trade-head,
+  .ci-trade-row { grid-template-columns: 1fr 44px 70px; }
+  .ci-trade-head span:nth-child(4),
+  .ci-trade-head span:nth-child(5),
+  .ci-trade-row span:nth-child(4),
+  .ci-trade-row span:nth-child(5) { display: none; }
+  .ci-rank-row { grid-template-columns: 50px 1fr auto; }
+  .ci-rank-meta { display: none; }
+}
