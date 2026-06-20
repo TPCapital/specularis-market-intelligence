@@ -257,7 +257,15 @@ function getModuleStates() {
 
 function safeRender(name, containerId, fn) {
   try {
-    return fn();
+    const result = fn();
+    // Handle async render functions (e.g. congress-intel, which fetches data)
+    if (result && typeof result.then === "function") {
+      result.catch(error => {
+        console.error(`[Specularis Terminal] ${name} async render failed`, error);
+        showModuleFallback(containerId, `${name} 暂不可用`, error);
+      });
+    }
+    return result;
   } catch (error) {
     console.error(`[Specularis Terminal] ${name} render failed`, error);
     showModuleFallback(containerId, `${name} 暂不可用`, error);
