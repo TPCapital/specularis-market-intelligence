@@ -195,8 +195,9 @@ export function renderAIDecisionLayer(containerId, getModuleStates, initialSnaps
     const hasEnrichedSip = Object.values(moduleStates.sipState || {}).some((e) => e?.enrichVersion || e?.optionsData || e?.targetMeanPrice);
     const serverDecisions = hasEnrichedSip ? null : getServerDecisions(latestSnapshot);
     const decisions = serverDecisions || (() => {
-      const { sipState = {}, oilState = {}, kolState = {}, marketRegime = {} } = moduleStates;
-      const kolEntries = kolState.entries || [];
+      const { sipState = {}, oilState = {}, congressState = {}, kolState = {}, marketRegime = {} } = moduleStates;
+      // Use congress intel state (watchlist trades) as social signal, fall back to legacy kolState
+      const kolEntries = kolState?.entries || [];
       return WATCHLIST.map((ticker) => {
         const sipEntry = { ticker, ...(sipState[ticker] || {}) };
         const oilEntry = oilState[ticker] || {};
@@ -216,7 +217,7 @@ export function renderAIDecisionLayer(containerId, getModuleStates, initialSnaps
     container.innerHTML = `
       <div class="adl-header">
         <span class="adl-mode-badge">🤖 AI Decision Layer</span>
-        <span class="adl-header-note">综合评分 = 市场环境(2) + 股价动能(2) + 催化质量(2) + 期权(2) + KOL(1) + 风控(1)</span>
+        <span class="adl-header-note">综合评分 = 市场环境(2) + 股价动能(2) + 催化质量(2) + 期权(2) + 社交共振(1) + 风控(1)</span>
       </div>
       <div class="adl-grid">${cards}</div>
       <p class="sip-disclaimer">⚠️ 仅供研究，不构成投资建议。For research only, not financial advice.</p>`;

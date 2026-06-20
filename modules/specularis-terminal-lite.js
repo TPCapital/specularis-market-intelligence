@@ -5,7 +5,7 @@
 
 import { renderStockIntelPro, getStockIntelState } from "./stock-intelligence-pro.js";
 import { renderOptionsIntelLite, getOptionsLiteState } from "./options-intelligence-lite.js";
-import { renderKolDistillation, getKolState } from "./kol-distillation.js";
+import { renderCongressIntel, getCongressIntelState } from "./congress-intel.js";
 import { renderAIDecisionLayer } from "./ai-decision-layer.js";
 import { renderAIPromptExport } from "./ai-prompt-export.js";
 
@@ -17,7 +17,7 @@ const FETCH_TIMEOUT_MS = 14_000;
 
 let sipModule = null;
 let oilModule = null;
-let kolModule = null;
+let congressModule = null;
 let latestSnapshot = {};
 let latestAutoIntel = null;
 let lastSnapshotKey = null;
@@ -248,7 +248,7 @@ function getModuleStates() {
   return {
     sipState: sipModule?.getState?.() || getStockIntelState(),
     oilState: oilModule?.getState?.() || getOptionsLiteState(),
-    kolState: kolModule?.getState?.() || getKolState(),
+    congressState: congressModule?.getState?.() || getCongressIntelState(),
     marketRegime: getMarketRegime(),
     snapshot: latestSnapshot || window._specularisDashboard || {},
     autoIntel: latestAutoIntel || window._specularisAutoIntel || latestSnapshot?.autoIntel || null,
@@ -271,7 +271,7 @@ function initModules() {
   latestSnapshot = window._specularisDashboard || {};
   sipModule = safeRender("Stock Intelligence Pro", "sipContainer", () => renderStockIntelPro("sipContainer", latestSnapshot));
   oilModule = safeRender("Options Lite", "oilContainer", () => renderOptionsIntelLite("oilContainer", latestSnapshot));
-  kolModule = safeRender("KOL Distillation", "kolContainer", () => renderKolDistillation("kolContainer"));
+  congressModule = safeRender("Congress Intel", "kolContainer", () => renderCongressIntel("kolContainer"));
   safeRender("AI Decision Layer", "adlContainer", () => renderAIDecisionLayer("adlContainer", getModuleStates, latestSnapshot));
   safeRender("AI Prompt Export", "apeContainer", () => renderAIPromptExport("apeContainer", getModuleStates));
   emitSnapshotReady(latestSnapshot, "initial-dashboard");
