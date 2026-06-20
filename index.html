@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI 美股信息流交易系统</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="terminal">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">AI US EQUITY FLOW TERMINAL</p>
+          <h1>AI 美股信息流交易系统</h1>
+        </div>
+        <div class="meta">
+          <span id="statusDot" class="status-dot"></span>
+          <span id="dataStatus">初始化</span>
+          <time id="asOf">等待快照</time>
+          <span id="refreshTimer">自动刷新准备中</span>
+          <button id="langToggle" class="language-toggle" type="button" aria-label="切换语言">EN</button>
+        </div>
+      </header>
+
+      <nav class="workspace-nav" aria-label="交易工作区导航">
+        <button class="workspace-tab is-active" type="button" data-workspace-target="premarket">
+          <span>01</span><strong>盘前战情室</strong><em>Pre-market</em>
+        </button>
+        <button class="workspace-tab" type="button" data-workspace-target="intraday">
+          <span>02</span><strong>盘中信息流</strong><em>Live Flow</em>
+        </button>
+        <button class="workspace-tab workspace-tab--new" type="button" data-workspace-target="stock-intel">
+          <span>03</span><strong>个股情报 Pro</strong><em>Stock Intel</em>
+        </button>
+        <button class="workspace-tab workspace-tab--new" type="button" data-workspace-target="options-lite">
+          <span>04</span><strong>期权与波动率</strong><em>Options Lite</em>
+        </button>
+        <button class="workspace-tab workspace-tab--new" type="button" data-workspace-target="kol-ai">
+          <span>05</span><strong>政要持股 · 情报</strong><em>Congress Intel</em>
+        </button>
+        <button class="workspace-tab" type="button" data-workspace-target="report">
+          <span>06</span><strong>收盘日报</strong><em>Daily Report</em>
+        </button>
+        <button class="workspace-tab" type="button" data-workspace-target="plan">
+          <span>07</span><strong>明日计划</strong><em>Next Plan</em>
+        </button>
+        <button class="workspace-tab" type="button" data-workspace-target="watchlist">
+          <span>08</span><strong>AI Watchlist</strong><em>Focus List</em>
+        </button>
+      </nav>
+
+
+
+      <section class="command-deck" aria-label="核心交易驾驶舱">
+        <article class="command-tile command-primary">
+          <p>市场状态</p>
+          <strong id="deckRiskMode">读取中</strong>
+          <span id="deckRiskScore">Score --</span>
+        </article>
+        <article class="command-tile">
+          <p>主线板块</p>
+          <strong id="deckMainTheme">等待确认</strong>
+          <span id="deckThemeScore">Heat --</span>
+        </article>
+        <article class="command-tile">
+          <p>最强机会</p>
+          <strong id="deckTopOpportunity">--</strong>
+          <span id="deckOpportunitySignal">等待量价</span>
+        </article>
+        <article class="command-tile command-risk">
+          <p>风险警报</p>
+          <strong id="deckRiskAlert">正常</strong>
+          <span id="deckRiskDetail">VIX / 10Y / DXY</span>
+        </article>
+        <article class="command-tile command-action">
+          <p>执行倾向</p>
+          <strong id="deckActionBias">等待确认</strong>
+          <span id="deckActionDetail">不追无量高开</span>
+        </article>
+      </section>
+
+      <section class="workspace-view is-active" data-workspace="premarket">
+      <section class="hero-grid">
+        <article class="regime-panel">
+          <p class="panel-label">Risk Regime</p>
+          <div class="regime-row">
+            <span id="riskMode" class="risk-mode">观察</span>
+            <span id="riskScore" class="risk-score">0</span>
+          </div>
+          <p id="riskConclusion" class="conclusion">读取最新快照。</p>
+          <div class="gauge">
+            <span id="gaugeFill"></span>
+          </div>
+          <div id="riskInputs" class="factor-strip"></div>
+        </article>
+
+        <article class="strategy-panel">
+          <p class="panel-label">今日策略</p>
+          <h2 id="strategyText">谨慎追高，等待回踩确认</h2>
+          <p id="strategyContext">指数与波动率信号尚待确认。</p>
+        </article>
+      </section>
+
+      <section class="scanner-status-bar">
+        <span id="rvLeader">相对成交量龙头 等待确认</span>
+        <span id="strongestSector">最强板块 等待确认</span>
+        <span id="riskAppetite">风险偏好 等待确认</span>
+        <span id="premarketMomentum">盘前动量 等待确认</span>
+        <span id="openingBias">开盘倾向 等待确认</span>
+      </section>
+
+      <section class="terminal-stack">
+        <section class="section market-strip">
+          <div class="section-title">
+            <h2>市场指数</h2>
+            <span id="indexModuleMeta">等待同步</span>
+          </div>
+          <div id="indexGrid" class="card-grid six loading-zone is-loading"></div>
+          <article class="market-summary-card">
+              <p class="panel-label">市场概览</p>
+            <h3 id="marketSummary">读取指数快照。</h3>
+          </article>
+        </section>
+
+        <section class="section market-structure-pro-section">
+          <div class="section-title">
+            <h2>市场结构 Pro <small>SECTOR / YIELD / OIL / FED / BREADTH</small></h2>
+            <span id="marketStructureModuleMeta">等待同步</span>
+          </div>
+          <div id="marketStructureGrid" class="structure-grid loading-zone is-loading"></div>
+        </section>
+
+        <section class="section split compact-split">
+          <div>
+            <div class="section-title">
+            <h2>风险指标</h2>
+            <span id="sentimentModuleMeta">等待同步</span>
+            </div>
+            <div id="sentimentGrid" class="card-grid three loading-zone is-loading"></div>
+          </div>
+          <aside class="verdict-card">
+            <p class="panel-label">追高判断</p>
+            <h3 id="chaseVerdict">中性偏谨慎</h3>
+            <p id="chaseReason">Greed 未到极端，但科技拥挤度需要观察。</p>
+          </aside>
+        </section>
+
+        <section class="section">
+          <div class="section-title">
+            <h2>盘前交易计划 <small>Premarket Trade Plan</small></h2>
+            <span id="tradePlanModuleMeta">观察模式</span>
+          </div>
+          <article class="trade-plan-card">
+            <h3 id="tradePlanTitle">读取机会快照。</h3>
+            <p id="tradePlanBody">数据刷新后生成盘前交易计划。</p>
+            <div id="tradePlanList" class="plan-list"></div>
+          </article>
+        </section>
+
+        <section class="section focus-panel">
+          <div class="section-title">
+            <h2>强势股自动筛选</h2>
+            <span id="riskModuleMeta">等待同步</span>
+          </div>
+          <aside class="tape-card">
+              <p class="panel-label">股票池逻辑</p>
+            <h3 id="starSummary">强势股自动筛选</h3>
+            <p>按涨幅、相对强弱、成交活跃度、板块热度与催化可信度加权。</p>
+          </aside>
+        </section>
+
+        <section class="section">
+          <div class="section-title">
+            <h2>今日机会榜 <small>PREMARKET OPPORTUNITY SCANNER</small></h2>
+            <span id="opportunityModuleMeta">观察模式</span>
+          </div>
+          <div id="opportunityGrid" class="opportunity-grid loading-zone is-loading"></div>
+        </section>
+
+        <section class="section">
+          <div class="section-title">
+            <h2>盘前动能 <small>PREMARKET MOMENTUM</small></h2>
+            <span id="momentumModuleMeta">观察模式</span>
+          </div>
+          <div id="momentumGrid" class="opportunity-grid loading-zone is-loading"></div>
+        </section>
+
+        <section class="section">
+          <div class="section-title">
+            <h2>明星股池</h2>
+            <span id="starModuleMeta">等待同步</span>
+          </div>
+          <div id="starGrid" class="star-grid loading-zone is-loading"></div>
+        </section>
+
+        <section class="section command-main">
+          <div class="section-title">
+            <h2>盘前异动榜</h2>
+            <span id="moverModuleMeta">等待同步</span>
+          </div>
+          <div id="moverTable" class="data-table loading-zone is-loading"></div>
+        </section>
+
+        <section class="section">
+          <div class="section-title">
+            <h2>热钱板块</h2>
+            <span id="flowModuleMeta">等待同步</span>
+          </div>
+          <aside class="tape-card flow-summary-card">
+            <p class="panel-label">AI 盘面解读</p>
+            <h3 id="tapeRead">读取快照</h3>
+            <p id="tapeReason">正在读取热钱板块、异动扩散与期权方向。</p>
+          </aside>
+          <div id="flowGrid" class="flow-grid loading-zone is-loading"></div>
+        </section>
+
+        <section class="section">
+          <div class="section-title">
+            <h2>期权信号系统 <small>OPTIONS SIGNAL SYSTEM</small></h2>
+            <span id="optionsModuleMeta">等待同步</span>
+          </div>
+          <div id="optionsFlow" class="options-grid loading-zone is-loading"></div>
+          <p class="module-footnote">免费版未接入真实期权大单流，本模块基于正股动量、相对成交量、板块强度、QQQ/SPY 方向、波动风险与新闻催化生成 CALL / PUT / WATCH / AVOID 代理信号。</p>
+        </section>
+
+        <section class="section">
+          <div class="section-title">
+            <h2>利好 / 利空新闻</h2>
+            <span id="newsModuleMeta">等待同步</span>
+          </div>
+          <div id="newsGrid" class="news-grid loading-zone is-loading"></div>
+        </section>
+
+        <section class="section intel-grid">
+          <article class="intel-panel">
+            <div class="section-title compact">
+              <h2>宏观快讯</h2>
+              <span id="macroModuleMeta">等待同步</span>
+            </div>
+            <div id="macroFeed" class="feed-list loading-zone is-loading"></div>
+          </article>
+
+          <article class="intel-panel">
+            <div class="section-title compact">
+              <h2>散户情绪 / WSB提及热度</h2>
+              <span id="retailModuleMeta">等待同步</span>
+            </div>
+            <div id="retailPanel" class="loading-zone is-loading"></div>
+          </article>
+        </section>
+      </section>
+
+      <section class="section source-section">
+        <div class="section-title compact">
+          <h2>数据源状态</h2>
+          <span id="sourceModuleMeta">等待同步</span>
+        </div>
+        <div id="sourceGrid" class="source-grid loading-zone is-loading"></div>
+      </section>
+
+
+      </section>
+
+      <section class="workspace-view" data-workspace="intraday">
+        <section class="section pro-hero-card">
+          <div class="section-title">
+            <h2>盘中信息流 <small>LIVE FLOW DESK</small></h2>
+            <span id="intradayModuleMeta">等待同步</span>
+          </div>
+          <div id="intradayPulse" class="pro-dashboard-grid loading-zone is-loading"></div>
+        </section>
+        <section class="section pro-split-grid">
+          <article class="intel-panel">
+            <div class="section-title compact"><h2>突发新闻流</h2><span>NEWS CATALYST</span></div>
+            <div id="intradayNews" class="feed-list loading-zone is-loading"></div>
+          </article>
+          <article class="intel-panel">
+            <div class="section-title compact"><h2>动量 / 异动雷达</h2><span>MOMENTUM RADAR</span></div>
+            <div id="intradayMovers" class="feed-list loading-zone is-loading"></div>
+          </article>
+        </section>
+      </section>
+
+      <section class="workspace-view" data-workspace="report">
+        <section class="section pro-hero-card">
+          <div class="section-title">
+            <h2>美股收盘日报 <small>US MARKET DAILY CLOSE</small></h2>
+            <span id="dailyReportMeta">北京时间 08:00 复盘模板</span>
+          </div>
+          <div id="dailyReport" class="daily-report-grid loading-zone is-loading"></div>
+        </section>
+      </section>
+
+      <section class="workspace-view" data-workspace="plan">
+        <section class="section pro-hero-card">
+          <div class="section-title">
+            <h2>明日交易计划 <small>NEXT SESSION PLAYBOOK</small></h2>
+            <span id="nextPlanMeta">等待同步</span>
+          </div>
+          <div id="decisionBoard" class="decision-board loading-zone is-loading"></div>
+        </section>
+      </section>
+
+      <section class="workspace-view" data-workspace="watchlist">
+        <section class="section pro-hero-card">
+          <div class="section-title">
+            <h2>AI Watchlist <small>核心主题追踪</small></h2>
+            <span id="watchlistMeta">AI / 半导体 / 软件 / 电力 / 核能</span>
+          </div>
+          <div id="aiWatchlist" class="watchlist-grid loading-zone is-loading"></div>
+        </section>
+      </section>
+
+      <!-- ===== STOCK INTELLIGENCE PRO ===== -->
+      <section class="workspace-view" data-workspace="stock-intel">
+        <section class="section pro-hero-card">
+          <div class="section-title">
+            <h2>个股情报 Pro <small>STOCK INTELLIGENCE PRO</small></h2>
+            <span>MU · MRVL · NVDA · AVGO · AMD · TSM · ASML · PLTR · ORCL · SMCI</span>
+          </div>
+          <div id="sipContainer" class="loading-zone is-loading"></div>
+        </section>
+      </section>
+
+      <!-- ===== OPTIONS INTELLIGENCE LITE ===== -->
+      <section class="workspace-view" data-workspace="options-lite">
+        <section class="section pro-hero-card">
+          <div class="section-title">
+            <h2>期权与波动率 <small>OPTIONS INTELLIGENCE LITE</small></h2>
+            <span id="oilModuleMeta">免费版代理信号 · Lite Mode Proxy Signals</span>
+          </div>
+          <div id="oilContainer" class="loading-zone is-loading"></div>
+        </section>
+      </section>
+
+      <!-- ===== KOL DISTILLATION + AI DECISION + PROMPT EXPORT ===== -->
+      <section class="workspace-view" data-workspace="kol-ai">
+        <section class="section pro-hero-card">
+          <div class="section-title">
+            <h2>政要持股情报 <small>CONGRESS TRADING INTELLIGENCE</small></h2>
+            <span>STOCK法案申报 · StockTwits · Reddit · 全程免费 · 自动抓取</span>
+          </div>
+          <div id="kolContainer" class="loading-zone is-loading"></div>
+        </section>
+
+        <section class="section pro-hero-card" style="margin-top:14px">
+          <div class="section-title">
+            <h2>AI 决策层 <small>AI DECISION LAYER — A+ SCORING</small></h2>
+            <span>综合评分：市场环境 + 股价动能 + 催化质量 + 期权 + KOL + 风控</span>
+          </div>
+          <div id="adlContainer" class="loading-zone is-loading"></div>
+        </section>
+
+        <section class="section pro-hero-card" style="margin-top:14px">
+          <div class="section-title">
+            <h2>生成 AI 提示词 <small>AI PROMPT EXPORT — HUMAN-IN-THE-LOOP</small></h2>
+            <span>生成可粘贴至 GPT Plus / Claude Pro 的完整分析提示词</span>
+          </div>
+          <div id="apeContainer" class="loading-zone is-loading"></div>
+        </section>
+      </section>
+
+    </main>
+
+    <script src="./config.js"></script>
+    <script src="./app.js"></script>
+    <script src="./i18n.js"></script>
+    <script type="module" src="./modules/specularis-terminal-lite.js"></script>
+  </body>
+</html>
