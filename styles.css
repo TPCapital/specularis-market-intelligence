@@ -64,16 +64,25 @@
   --t-display:    clamp(22px, 1.8vw, 30px);   /* strategy text */
 }
 
+
+/* ── Extension Protection: force all color surfaces to explicit values ──────── */
+/* Prevents Night Eye / Dark Reader from inverting our intentional dark palette */
+html, body {
+  color-scheme: dark only;
+  forced-color-adjust: none;
+}
+
 /* ── 2. RESET & BASE ─────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 
 body {
   margin: 0;
   min-height: 100vh;
-  background:
+  background-color: #04050a;
+  background-image:
     radial-gradient(ellipse 70% 40% at 12% -8%, rgba(95,168,255,0.18) 0%, transparent 100%),
     radial-gradient(ellipse 60% 35% at 88% 5%, rgba(212,171,78,0.10) 0%, transparent 100%),
-    linear-gradient(180deg, #080b14 0%, var(--bg) 38%);
+    linear-gradient(180deg, #080b14 0%, #04050a 38%);
   color: var(--text);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, "SF Pro Display",
                "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -168,7 +177,7 @@ h1 {
   padding: 8px;
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
-  background: linear-gradient(180deg, rgba(8,12,22,0.92), rgba(4,5,10,0.86));
+  background: linear-gradient(180deg, #080c16, #04050a);
   backdrop-filter: blur(28px);
   box-shadow: var(--shadow-md);
 }
@@ -258,9 +267,10 @@ h1 {
   position: relative;
   min-height: 118px;
   padding: 16px 18px 14px;
+  overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
-  background: linear-gradient(160deg, var(--surface-2) 0%, var(--surface-1) 100%);
+  background: linear-gradient(160deg, #1e2133 0%, #13151f 100%);
   box-shadow: var(--shadow-md);
   backdrop-filter: blur(20px);
   overflow: hidden;
@@ -292,10 +302,15 @@ h1 {
 .command-tile strong {
   display: block;
   color: var(--text);
-  font-size: var(--t-kpi-sm);
+  font-size: clamp(13px, 2.2vw, 36px);
   font-weight: 900;
-  line-height: 0.94;
-  letter-spacing: -0.045em;
+  line-height: 0.96;
+  letter-spacing: -0.04em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  width: 100%;
 }
 .command-tile span {
   display: block;
@@ -306,9 +321,9 @@ h1 {
 }
 
 /* Command tile semantic colors */
-.command-primary strong { color: var(--green); text-shadow: 0 0 28px var(--green-glow); }
-.command-risk strong    { color: var(--gold); }
-.command-action strong  { color: var(--cyan); }
+.command-primary strong { color: #1adb7e; text-shadow: 0 0 28px rgba(26,219,126,0.15); }
+.command-risk strong    { color: #d4ab4e; }
+.command-action strong  { color: #40d4e8; }
 
 .command-primary::before { background: linear-gradient(90deg, var(--green), var(--cyan)); }
 .command-risk::before    { background: linear-gradient(90deg, var(--gold), rgba(212,171,78,0.4)); }
@@ -395,7 +410,7 @@ h1 {
 .source-card, .intel-panel, .trade-plan-card, .opportunity-card {
   border: 1px solid var(--border);
   border-radius: var(--r-md);
-  background: linear-gradient(180deg, var(--surface-2), var(--surface-1));
+  background: linear-gradient(180deg, #1a1c27, #12141e);
   box-shadow: var(--shadow-md);
   backdrop-filter: blur(18px);
 }
@@ -658,11 +673,14 @@ body[data-risk="neutral"]  .strategy-panel h2 { color: var(--gold); }
 .structure-card strong {
   display: block;
   margin: 0 0 10px;
-  font-size: clamp(28px, 2.2vw, 42px);
+  font-size: clamp(18px, 2.0vw, 38px);
   font-weight: 920;
-  line-height: 0.94;
-  letter-spacing: -0.055em;
-  word-break: keep-all;
+  line-height: 0.96;
+  letter-spacing: -0.045em;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  hyphens: auto;
+  max-width: 100%;
 }
 .structure-card.hot  strong { color: var(--green); }
 .structure-card.risk strong { color: var(--red); }
@@ -759,7 +777,7 @@ body[data-risk="neutral"]  .strategy-panel h2 { color: var(--gold); }
   align-items: center;
   justify-content: center;
   border-right: 1px solid var(--border);
-  background: linear-gradient(180deg, var(--surface-2), var(--surface-0));
+  background: linear-gradient(180deg, #1a1c27, #0d0f18);
   gap: 6px;
 }
 .opportunity-score-block b {
@@ -863,7 +881,7 @@ body[data-risk="neutral"]  .strategy-panel h2 { color: var(--gold); }
   justify-content: center;
   align-items: center;
   border-right: 1px solid var(--border);
-  background: var(--surface-1);
+  background: #13151e;
   gap: 6px;
 }
 .momentum-score b {
@@ -2336,19 +2354,19 @@ body[data-risk="neutral"]  .strategy-panel h2 { color: var(--gold); }
 .ci-trade-table { display: flex; flex-direction: column; }
 .ci-trade-head {
   display: grid;
-  grid-template-columns: 1.6fr 56px 80px 90px 80px;
-  gap: 8px;
+  grid-template-columns: 1.4fr 28px 52px 80px 1fr 72px;
+  gap: 6px;
   padding: 6px 0 8px;
-  border-bottom: 1px solid var(--border-md);
-  color: var(--text-muted);
-  font-size: var(--t-xs);
+  border-bottom: 1px solid rgba(255,255,255,0.16);
+  color: #7a8194;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.10em;
   text-transform: uppercase;
 }
 .ci-trade-row {
   display: grid;
-  grid-template-columns: 1.6fr 56px 80px 90px 80px;
+  grid-template-columns: 1.4fr 28px 52px 80px 1fr 72px;
   gap: 8px;
   align-items: center;
   padding: 7px 0;
@@ -2628,11 +2646,20 @@ body[data-risk="neutral"]  .strategy-panel h2 { color: var(--gold); }
 .ci-reddit-tix { display: flex; flex-wrap: wrap; gap: 5px; }
 
 /* ── Loading / Error states ──────────────────────────────── */
-.ci-loading { padding: 20px; }
-.ci-shimmer {
-  height: 16px;
+/* Skeleton loader */
+.ci-skeleton { padding: 20px; display: flex; flex-direction: column; gap: 0; }
+.ci-sk-bar {
+  height: 14px; width: 100%;
   border-radius: 6px;
-  background: linear-gradient(90deg, var(--surface-1) 0%, var(--surface-2) 50%, var(--surface-1) 100%);
+  background: linear-gradient(90deg, #1a1c27 0%, #22253a 50%, #1a1c27 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+  margin-bottom: 0;
+}
+.ci-sk-box {
+  height: 80px; flex: 1;
+  border-radius: 8px;
+  background: linear-gradient(90deg, #1a1c27 0%, #22253a 50%, #1a1c27 100%);
   background-size: 200% 100%;
   animation: shimmer 1.4s infinite;
 }
@@ -2661,21 +2688,90 @@ body[data-risk="neutral"]  .strategy-panel h2 { color: var(--gold); }
   line-height: 1.55;
 }
 
+
+/* ── Sent bar wrap (prevents overflow) ──────────────────── */
+.ci-sent-bar-wrap { margin: 5px 0; }
+.ci-sent-pct {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  font-weight: 800;
+  margin-top: 3px;
+}
+.ci-chamber-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px; height: 18px;
+  border-radius: 4px;
+  background: #1e2030;
+  color: #7a8194;
+  font-size: 11px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+.ci-trade-row.ci-row-wl .ci-chamber-badge {
+  background: rgba(212,171,78,0.12);
+  color: var(--gold);
+}
+.ci-rtick-label {
+  color: #7a8194;
+  font-size: 11px;
+  font-weight: 700;
+  margin-right: 4px;
+}
+.ci-trend-foot {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  font-weight: 800;
+  margin-top: 4px;
+}
+.ci-tmeta { color: #7a8194; }
+.ci-bar-wrap { display: flex; align-items: center; }
+
+/* Force explicit dark on all congress intel panels */
+.ci-left-col, .ci-right-col {
+  background-color: #12141e;
+  border-color: rgba(255,255,255,0.10);
+}
+.ci-reddit-row {
+  background-color: #12141e;
+  border-color: rgba(255,255,255,0.10);
+}
+.ci-trend-card {
+  background-color: #12141e;
+  border-color: rgba(255,255,255,0.10);
+}
+.ci-wl-sent-card {
+  background-color: #12141e;
+  border-color: rgba(255,255,255,0.10);
+}
+.ci-confluence-block {
+  background-color: #1a1508;
+}
+.ci-status-bar {
+  background-color: #0d0f18;
+}
+.ci-footnote {
+  background-color: #0d0f18;
+}
+
 /* ── Responsive ──────────────────────────────────────────── */
 @media (max-width: 1100px) {
   .ci-main-grid { grid-template-columns: 1fr; }
   .ci-trade-head,
-  .ci-trade-row { grid-template-columns: 1fr 50px 72px 80px 70px; }
+  .ci-trade-row { grid-template-columns: 1.2fr 28px 48px 76px 1fr 60px; }
 }
 @media (max-width: 700px) {
   .ci-trending-grid { grid-template-columns: repeat(3, 1fr); }
   .ci-wl-sentiment  { grid-template-columns: repeat(2, 1fr); }
   .ci-trade-head,
-  .ci-trade-row { grid-template-columns: 1fr 44px 70px; }
-  .ci-trade-head span:nth-child(4),
+  .ci-trade-row { grid-template-columns: 1fr 26px 44px 72px; }
   .ci-trade-head span:nth-child(5),
-  .ci-trade-row span:nth-child(4),
-  .ci-trade-row span:nth-child(5) { display: none; }
+  .ci-trade-head span:nth-child(6),
+  .ci-trade-row .ci-amount,
+  .ci-trade-row .ci-date { display: none; }
   .ci-rank-row { grid-template-columns: 50px 1fr auto; }
   .ci-rank-meta { display: none; }
 }
