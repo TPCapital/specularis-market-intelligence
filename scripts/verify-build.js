@@ -33,6 +33,7 @@ const moduleFiles = [
   "modules/kol-distillation.js",
   "modules/ai-decision-layer.js",
   "modules/ai-prompt-export.js",
+  "modules/specularis-intelligence-os-v8.js",
 ];
 for (const f of moduleFiles) {
   existsSync(join(root, f)) ? pass(f) : fail(`MISSING: ${f}`);
@@ -107,7 +108,7 @@ section("vercel.json");
 try {
   const vj = JSON.parse(readFileSync(join(root, "vercel.json"), "utf8"));
   vj.buildCommand ? pass(`buildCommand: ${vj.buildCommand.slice(0,60)}`) : fail("MISSING buildCommand");
-  vj.outputDirectory === "." ? pass("outputDirectory: .") : fail(`outputDirectory: ${vj.outputDirectory} (expected '.')`);
+  vj.outputDirectory === "dist" ? pass("outputDirectory: dist") : fail(`outputDirectory: ${vj.outputDirectory} (expected 'dist')`);
   vj.functions?.["api/*.js"] ? pass("functions: api/*.js configured") : fail("MISSING functions config");
 } catch (e) {
   fail(`vercel.json parse error: ${e.message}`);
@@ -119,7 +120,7 @@ const css = readFileSync(join(root, "styles.css"), "utf8");
 const opens = (css.match(/\{/g) || []).length;
 const closes = (css.match(/\}/g) || []).length;
 opens === closes ? pass(`CSS braces balanced: ${opens} { = ${closes} }`) : fail(`CSS braces UNBALANCED: ${opens} { vs ${closes} }`);
-css.includes("sip-grid") && css.includes("oil-grid") && css.includes("adl-grid")
+css.includes("sip-grid") && css.includes("oil-grid") && css.includes("adl-grid") && css.includes("sio-grid")
   ? pass("new module CSS classes present")
   : fail("new module CSS classes missing");
 
@@ -156,7 +157,7 @@ if (failures === 0) {
   console.log(`   Active app:     index.html + app.js + styles.css + i18n.js`);
   console.log(`   New modules:    modules/ (browser ES modules, no bundler needed)`);
   console.log(`   API routes:     api/*.js (Vercel serverless, Node ≥18, ESM)`);
-  console.log(`   Build command:  none (static, outputDirectory: .)`);
+  console.log(`   Build command:  npm run build (static, outputDirectory: dist)`);
 } else {
   console.error(`\n❌  ${failures} check(s) failed. Fix before deploying.\n`);
   process.exit(1);

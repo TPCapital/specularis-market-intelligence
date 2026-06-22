@@ -1,274 +1,243 @@
-// modules/ai-decision-layer.js — AI Decision Layer v3.0
-// Inspired by: UZI-Skill (51-investor panel), daily_stock_analysis (decision dashboard)
-// Multi-perspective scoring: Regime × Trend × Catalyst × Options × Social × Risk
-// Five analyst "lenses" synthesize into a final A+/A/B/C/AVOID rating
+// modules/ai-decision-layer.js
+// Specularis Market Terminal Lite — AI Decision Layer Module.
+// Aggregates data from all modules and computes A+ opportunity scores.
 
-const WATCHLIST = ["NVDA","MSFT","AAPL","AMD","MRVL","MU","AVGO","TSM","ASML","PLTR","ORCL","SMCI","META","GOOGL","AMZN","TSLA","SPY","QQQ"];
+const ADL_STORAGE_KEY = "specularis-market-terminal:ai-decision-v1";
+const WATCHLIST = ["MU","MRVL","NVDA","AVGO","AMD","TSM","ASML","PLTR","ORCL","SMCI"];
 
-// Five analyst perspective lenses (inspired by UZI's 51 panel — condensed to 5 institutional profiles)
-const ANALYST_LENSES = [
-  {
-    id: "momentum",
-    name: "动能分析师",
-    nameEn: "Momentum Trader",
-    icon: "⚡",
-    focus: "价格动能、RVOL、盘前强度",
-    bullConditions: (s, o) => [
-      s.dailyChangePercent >= 2,
-      s.trendStatus === "strong_uptrend" || s.trendStatus === "uptrend",
-      (s.relativeVolume || 1) >= 1.5,
-    ].filter(Boolean).length,
-    bearConditions: (s, o) => [
-      s.dailyChangePercent <= -2,
-      s.trendStatus === "downtrend" || s.trendStatus === "strong_downtrend",
-    ].filter(Boolean).length,
-  },
-  {
-    id: "value",
-    name: "价值猎手",
-    nameEn: "Value Hunter",
-    icon: "🏛",
-    focus: "支撑位、PE估值、安全边际",
-    bullConditions: (s, o) => [
-      s.supportLevel && s.currentPrice && s.currentPrice <= s.supportLevel * 1.05,
-      !s.riskFlags?.includes("chasing_risk"),
-      !s.riskFlags?.includes("extended"),
-    ].filter(Boolean).length,
-    bearConditions: (s, o) => [
-      s.riskFlags?.includes("chasing_risk"),
-      s.riskFlags?.includes("extended"),
-      s.riskFlags?.includes("high_beta"),
-    ].filter(Boolean).length,
-  },
-  {
-    id: "catalyst",
-    name: "事件驱动",
-    nameEn: "Event Driven",
-    icon: "🎯",
-    focus: "新闻催化、财报、机构动向",
-    bullConditions: (s, o) => [
-      (s.news || []).some(n => /upgr|buy|bull|strong|beat|upside/i.test(n)),
-      !s.riskFlags?.includes("earnings_event"),
-      s.analystTone === "bullish" || s.analystTone === "positive",
-    ].filter(Boolean).length,
-    bearConditions: (s, o) => [
-      s.riskFlags?.includes("analyst_bearish"),
-      s.riskFlags?.includes("earnings_event"),
-      (s.news || []).some(n => /downgrade|sell|miss|warn|risk/i.test(n)),
-    ].filter(Boolean).length,
-  },
-  {
-    id: "options",
-    name: "期权流向",
-    nameEn: "Options Flow",
-    icon: "📊",
-    focus: "IV结构、Put/Call、期权方向",
-    bullConditions: (s, o) => [
-      o?.preferredStructure === "CALL" || o?.preferredStructure === "long_call",
-      o?.ivStatus === "low" || o?.ivStatus === "normal",
-      o?.riskLevel === "low",
-    ].filter(Boolean).length,
-    bearConditions: (s, o) => [
-      o?.preferredStructure === "PUT" || o?.preferredStructure === "hedge",
-      o?.ivStatus === "high" || o?.ivStatus === "elevated",
-      s.riskFlags?.includes("put_flow"),
-    ].filter(Boolean).length,
-  },
-  {
-    id: "regime",
-    name: "宏观环境",
-    nameEn: "Macro Regime",
-    icon: "🌐",
-    focus: "市场风险偏好、板块轮动、宏观背景",
-    bullConditions: (s, o, regime) => [
-      regime?.mode === "Risk-On",
-      regime?.score >= 65,
-      !["VIX_SPIKE", "BREADTH_WEAK"].some(r => (regime?.alerts || []).includes(r)),
-    ].filter(Boolean).length,
-    bearConditions: (s, o, regime) => [
-      regime?.mode === "Risk-Off",
-      regime?.score <= 35,
-    ].filter(Boolean).length,
-  },
-];
+const RATING_CLASSES = {
+  "A+": "adl-rating--aplus",
+  "A": "adl-rating--a",
+  "B": "adl-rating--b",
+  "C": "adl-rating--c",
+  "Avoid": "adl-rating--avoid",
+  "placeholder": "adl-rating--placeholder",
+  "computed-lite": "adl-rating--b",
+};
 
-// Scoring matrix
-function computeScore(sipEntry, oilEntry, regime) {
-  if (!sipEntry) return null;
-  const s = sipEntry;
-  const o = oilEntry || {};
-  const r = regime || {};
+const ACTION_LABELS = {
+  tradable: "可交易",
+  watch: "观察",
+  wait_for_pullback: "等待回踩",
+  avoid: "回避",
+};
 
-  let totalBull = 0, totalBear = 0, maxPossible = 0;
-  const lensScores = ANALYST_LENSES.map(lens => {
-    const bull = lens.bullConditions(s, o, r);
-    const bear = lens.bearConditions(s, o, r);
-    totalBull += bull;
-    totalBear += bear;
-    maxPossible += 3;
-    return { id: lens.id, name: lens.name, icon: lens.icon, bull, bear };
-  });
+const VEHICLE_LABELS = {
+  stock: "正股",
+  option: "期权",
+  call_spread: "Call 价差",
+  no_trade: "不交易",
+};
 
-  const netScore = (totalBull - totalBear) / maxPossible;
-  const rawScore = Math.round(50 + netScore * 50);
-  const score = Math.max(0, Math.min(100, rawScore));
-
-  // Rating
-  let rating, ratingClass, action;
-  if (score >= 80)     { rating = "A+"; ratingClass = "adl-rating--aplus"; action = "积极考虑"; }
-  else if (score >= 68){ rating = "A";  ratingClass = "adl-rating--a";     action = "关注机会"; }
-  else if (score >= 52){ rating = "B";  ratingClass = "adl-rating--b";     action = "观察等待"; }
-  else if (score >= 38){ rating = "C";  ratingClass = "adl-rating--c";     action = "谨慎轻仓"; }
-  else                  { rating = "回避"; ratingClass = "adl-rating--avoid"; action = "规避"; }
-
-  // Regime-based strategy label (inspired by daily_stock_analysis's three-phase strategy)
-  const strategy = r.mode === "Risk-On"
-    ? "进攻" : r.mode === "Risk-Off"
-    ? "防守" : "均衡";
-
-  return { score, rating, ratingClass, action, strategy, lensScores, totalBull, totalBear };
+function escHtml(v) {
+  return String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-function esc(v) { return String(v??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function scoreDecision({ sipEntry = {}, oilEntry = {}, kolEntries = [], marketRegime = {} }) {
+  const ticker = sipEntry.ticker;
+  const isPlaceholder = sipEntry.dataStatus === "placeholder" || !sipEntry.dataStatus;
 
-function renderADLCard(ticker, sipEntry, oilEntry, regime, isPlaceholder) {
-  if (isPlaceholder || !sipEntry) {
-    return `<div class="adl-card adl-rating--placeholder">
-      <div class="adl-card-header">
-        <span class="adl-ticker">${esc(ticker)}</span>
-        <div class="adl-score-block"><span class="adl-score adl-score--placeholder">–</span></div>
-      </div>
-      <p class="adl-placeholder-note">等待快照数据...</p>
-    </div>`;
+  // Market regime
+  const regimeRaw = Number(marketRegime.score);
+  const regimeScore = Number.isFinite(regimeRaw) ? (regimeRaw >= 70 ? 2 : regimeRaw >= 50 ? 1 : 0) : 0;
+
+  // Stock trend
+  let trendScore = 0;
+  if (!isPlaceholder) {
+    if (sipEntry.trendStatus === "strong_uptrend") trendScore = 2;
+    else if (sipEntry.trendStatus === "uptrend" || Number(sipEntry.dailyChangePercent) > 0) trendScore = 1;
   }
 
-  const result = computeScore(sipEntry, oilEntry, regime);
-  if (!result) return "";
+  // Catalyst quality
+  let catalystScore = 0;
+  if (!isPlaceholder) {
+    const newsOk = Array.isArray(sipEntry.recentNews) && sipEntry.recentNews.length > 0;
+    const analystBull = String(sipEntry.analystTone || "").toLowerCase() === "bullish";
+    const upsideOk = Number(sipEntry.upsidePct) > 5;
+    if (newsOk && (analystBull || upsideOk)) catalystScore = 2;
+    else if (newsOk || analystBull || upsideOk) catalystScore = 1;
+  }
 
-  const { score, rating, ratingClass, action, strategy, lensScores } = result;
+  // Options risk/reward
+  let optScore = 0;
+  if (oilEntry.preferredStructure && !["avoid","wait"].includes(oilEntry.preferredStructure)) {
+    optScore = oilEntry.riskLevel === "low" ? 2 : oilEntry.riskLevel === "medium" ? 1 : 0;
+  }
+  if (sipEntry.optionsData?.flowBias === "call_heavy" && ["uptrend","strong_uptrend"].includes(sipEntry.trendStatus)) optScore = Math.max(optScore, 1);
+  if (sipEntry.optionsData?.flowBias === "put_heavy" && Number(sipEntry.dailyChangePercent) < 0) optScore = Math.max(optScore, 1);
 
-  const lensHtml = lensScores.map(l => {
-    const bullPct = Math.round((l.bull / 3) * 100);
-    const bearPct = Math.round((l.bear / 3) * 100);
-    const netColor = l.bull > l.bear ? "#1adb7e" : l.bear > l.bull ? "#ff3d57" : "#7a8194";
-    return `<div class="adl-lens">
-      <span class="adl-lens-icon">${esc(l.icon)}</span>
-      <span class="adl-lens-name">${esc(l.name)}</span>
-      <div class="adl-lens-bar-track">
-        <div class="adl-lens-fill" style="width:${bullPct}%;background:${netColor}"></div>
-      </div>
-      <span class="adl-lens-val" style="color:${netColor}">${l.bull > l.bear ? "+" : l.bear > l.bull ? "−" : "~"}${Math.abs(l.bull - l.bear)}</span>
-    </div>`;
-  }).join("");
+  // KOL confirmation
+  const kolScore = kolEntries.filter((e) =>
+    e.mentionedTickers?.includes(ticker) &&
+    e.stance === "bullish" &&
+    ["explicit_position","strong_opinion"].includes(e.signalType) &&
+    ["high","medium"].includes(e.convictionLevel)
+  ).length > 0 ? 1 : 0;
 
-  // Key levels
-  const support   = sipEntry.supportLevel  ? `$${Number(sipEntry.supportLevel).toFixed(2)}`  : "–";
-  const resist    = sipEntry.resistLevel   ? `$${Number(sipEntry.resistLevel).toFixed(2)}`   : "–";
-  const price     = sipEntry.currentPrice  ? `$${Number(sipEntry.currentPrice).toFixed(2)}`  : "–";
-  const chg       = sipEntry.dailyChangePercent != null ? `${sipEntry.dailyChangePercent >= 0 ? "+" : ""}${Number(sipEntry.dailyChangePercent).toFixed(2)}%` : "–";
-  const chgClass  = sipEntry.dailyChangePercent >= 0 ? "up" : "down";
+  // Risk control clarity
+  const riskCtrlScore = (!isPlaceholder && sipEntry.keySupport && sipEntry.keyResistance) ? 1 : 0;
 
-  // Strategy badge color
-  const stratColor = strategy === "进攻" ? "#1adb7e" : strategy === "防守" ? "#ff3d57" : "#d4ab4e";
+  const total = regimeScore + trendScore + catalystScore + optScore + kolScore + riskCtrlScore;
 
-  return `<div class="adl-card ${esc(ratingClass)}">
-    <div class="adl-card-header">
-      <div class="adl-ticker-block">
-        <span class="adl-ticker">${esc(ticker)}</span>
-        <span class="adl-sector">${esc(sipEntry.sector || "")}</span>
-      </div>
-      <div class="adl-score-block">
-        <span class="adl-score">${score}</span>
-        <span class="adl-score-max">/100</span>
-      </div>
-    </div>
+  const rating = isPlaceholder ? "placeholder"
+    : total >= 8.5 ? "A+" : total >= 7 ? "A" : total >= 5 ? "B" : total >= 3 ? "C" : "Avoid";
 
-    <div class="adl-rating-row">
-      <span class="adl-rating-badge">${esc(rating)}</span>
-      <span class="adl-action">${esc(action)}</span>
-      <span class="adl-strategy-badge" style="color:${stratColor};border-color:${stratColor}40">${esc(strategy)}模式</span>
-    </div>
-
-    <div class="adl-price-row">
-      <span class="adl-cur-price">${esc(price)}</span>
-      <span class="${chgClass}">${esc(chg)}</span>
-    </div>
-
-    <div class="adl-lenses">${lensHtml}</div>
-
-    <div class="adl-levels">
-      <div><span class="adl-lvl-label">支撑</span><span>${esc(support)}</span></div>
-      <div><span class="adl-lvl-label">压力</span><span>${esc(resist)}</span></div>
-      <div><span class="adl-lvl-label">期权方向</span><span>${esc(oilEntry?.preferredStructure || "–")}</span></div>
-    </div>
-
-    ${sipEntry.riskFlags?.length ? `<div class="adl-risk-row">${
-      sipEntry.riskFlags.map(f => {
-        const RISK_ZH = {
-          chasing_risk:"追涨⚠", extended:"超买延伸", earnings_event:"财报临近",
-          high_beta:"高波动β", gap_risk:"跳空风险", price_pressure:"价格承压",
-          put_flow:"Put沉重", analyst_bearish:"分析师看空", high_iv:"IV偏高",
-          options_unavailable:"期权缺失", quote_fallback:"报价备用"
-        };
-        return `<span class="adl-risk-flag">${esc(RISK_ZH[f] || f)}</span>`;
-      }).join("")
-    }</div>` : ""}
-  </div>`;
+  return {
+    ticker,
+    score: isPlaceholder ? null : parseFloat(total.toFixed(1)),
+    rating,
+    action: rating === "placeholder" ? "watch"
+          : rating === "A+" || rating === "A" ? "tradable"
+          : rating === "B" ? "watch"
+          : rating === "C" ? "wait_for_pullback" : "avoid",
+    preferredVehicle: rating === "Avoid" || rating === "placeholder" ? "no_trade"
+          : oilEntry.preferredStructure === "call_spread" ? "call_spread"
+          : oilEntry.preferredStructure === "long_call" ? "option" : "stock",
+    keyEntryZone: sipEntry.keySupport || null,
+    invalidationLevel: sipEntry.keySupport ? `低于 ${sipEntry.keySupport}` : null,
+    targetZone: sipEntry.keyResistance || null,
+    scoreBreakdown: { regimeScore, trendScore, catalystScore, optScore, kolScore, riskCtrlScore },
+    dataStatus: isPlaceholder ? "placeholder" : "computed",
+  };
 }
 
-export function renderAIDecisionLayer(containerId, getModuleStates, latestSnapshot) {
-  const el = document.getElementById(containerId);
-  if (!el) return;
-  el.classList.remove("is-loading");
+function barHtml(score, max) {
+  const pct = max > 0 ? Math.round((score / max) * 100) : 0;
+  return `<div class="adl-bar-track"><div class="adl-bar-fill" style="width:${pct}%"></div></div>`;
+}
 
-  const states = getModuleStates?.() || {};
-  const sipEntries = states.sipState?.entries || [];
-  const oilEntries = states.oilState?.entries || [];
-  const regime     = latestSnapshot?.risk || states.marketRegime || {};
+function renderCard(decision) {
+  const ratingCls = RATING_CLASSES[decision.rating] || "adl-rating--placeholder";
+  const isPlaceholder = decision.dataStatus === "placeholder";
+  const score = decision.score !== null ? decision.score : "--";
+  const bd = decision.scoreBreakdown || {};
 
-  const sipMap = Object.fromEntries(sipEntries.map(e => [e.ticker, e]));
-  const oilMap = Object.fromEntries(oilEntries.map(e => [e.symbol || e.ticker, e]));
+  const breakdownHtml = isPlaceholder
+    ? `<p class="adl-placeholder-note">等待免费行情或在「个股情报 Pro」中手动输入后计算。</p>`
+    : `<div class="adl-breakdown">
+        <div class="adl-brow"><span>市场环境</span>${barHtml(bd.regimeScore, 2)}<span>${bd.regimeScore}/2</span></div>
+        <div class="adl-brow"><span>股价动能</span>${barHtml(bd.trendScore, 2)}<span>${bd.trendScore}/2</span></div>
+        <div class="adl-brow"><span>催化质量</span>${barHtml(bd.catalystScore, 2)}<span>${bd.catalystScore}/2</span></div>
+        <div class="adl-brow"><span>期权风险回报</span>${barHtml(bd.optScore, 2)}<span>${bd.optScore}/2</span></div>
+        <div class="adl-brow"><span>KOL 确认</span>${barHtml(bd.kolScore, 1)}<span>${bd.kolScore}/1</span></div>
+        <div class="adl-brow"><span>风控清晰度</span>${barHtml(bd.riskCtrlScore, 1)}<span>${bd.riskCtrlScore}/1</span></div>
+      </div>`;
 
-  // Strategy mode banner (inspired by daily_stock_analysis three-phase)
-  const mode = regime.mode || "Neutral";
-  const modeZh = mode === "Risk-On" ? "进攻" : mode === "Risk-Off" ? "防守" : "均衡";
-  const modeColor = mode === "Risk-On" ? "#1adb7e" : mode === "Risk-Off" ? "#ff3d57" : "#d4ab4e";
-  const modeDesc = mode === "Risk-On"
-    ? "市场风险偏好开启 · 积极参与动能标的 · 管控仓位"
-    : mode === "Risk-Off"
-    ? "市场风险偏好收缩 · 观望防守为主 · 规避高Beta标的"
-    : "市场处于观察整理期 · 轻仓等待明确方向";
+  const levelsHtml = !isPlaceholder && (decision.keyEntryZone || decision.targetZone || decision.invalidationLevel)
+    ? `<div class="adl-levels">
+        ${decision.keyEntryZone ? `<div><span class="oil-label">进场区</span><span>${escHtml(decision.keyEntryZone)}</span></div>` : ""}
+        ${decision.invalidationLevel ? `<div><span class="oil-label">止损</span><span>${escHtml(decision.invalidationLevel)}</span></div>` : ""}
+        ${decision.targetZone ? `<div><span class="oil-label">目标</span><span>${escHtml(decision.targetZone)}</span></div>` : ""}
+      </div>` : "";
 
-  // Sort: by score descending
-  const ranked = WATCHLIST
-    .map(ticker => {
-      const sip = sipMap[ticker];
-      const oil = oilMap[ticker];
-      const result = computeScore(sip, oil, regime);
-      return { ticker, sip, oil, result };
-    })
-    .filter(x => x.result)
-    .sort((a, b) => (b.result?.score || 0) - (a.result?.score || 0));
-
-  const watchlistOnly = WATCHLIST.filter(t => !sipMap[t]);
-
-  el.innerHTML = `
-    <!-- Strategy Banner -->
-    <div class="adl-strategy-banner" style="border-color:${modeColor}40;background:${modeColor}08">
-      <span class="adl-mode-label" style="color:${modeColor}">当前策略模式：${esc(modeZh)}（${esc(mode)}）</span>
-      <span class="adl-mode-desc">${esc(modeDesc)}</span>
-      <span class="adl-score-note">综合评分 = 动能(3) + 价值(3) + 催化(3) + 期权(3) + 宏观(3) · 满分100</span>
+  return `
+<article class="adl-card ${ratingCls}" data-ticker="${decision.ticker}">
+  <div class="adl-card-header">
+    <strong class="adl-ticker">${decision.ticker}</strong>
+    <div class="adl-score-block">
+      <span class="adl-score">${score}</span>
+      <span class="adl-score-max">/10</span>
     </div>
+  </div>
+  <div class="adl-rating-row">
+    <span class="adl-rating-badge ${ratingCls}">${escHtml(decision.rating)}</span>
+    <span class="adl-action">${escHtml(ACTION_LABELS[decision.action] || decision.action)}</span>
+    <span class="adl-vehicle">${escHtml(VEHICLE_LABELS[decision.preferredVehicle] || decision.preferredVehicle)}</span>
+  </div>
+  ${breakdownHtml}
+  ${decision.reason ? `<p class="adl-reason">${escHtml(decision.reason)}</p>` : ""}
+  ${levelsHtml}
+  <p class="adl-risk-warn">⚠️ 仅供研究 · Not financial advice</p>
+</article>`;
+}
 
-    <!-- ADL Grid — sorted by score -->
-    <div class="adl-grid">
-      ${ranked.map(({ ticker, sip, oil }) => renderADLCard(ticker, sip, oil, regime, false)).join("")}
-      ${watchlistOnly.map(t => renderADLCard(t, null, null, regime, true)).join("")}
-    </div>
-  `;
+function normalizeServerDecision(decision = {}) {
+  const bd = decision.scoreBreakdown || {};
+  return {
+    ticker: decision.ticker,
+    score: decision.score ?? null,
+    rating: decision.rating || "placeholder",
+    action: decision.action || "watch",
+    preferredVehicle: decision.preferredVehicle || "no_trade",
+    keyEntryZone: decision.keyEntryZone || null,
+    invalidationLevel: decision.invalidationLevel || null,
+    targetZone: decision.targetZone || null,
+    reason: decision.reason || "Server-side Lite decision.",
+    riskWarning: decision.riskWarning || "仅供研究，不构成投资建议。For research only, not financial advice.",
+    scoreBreakdown: {
+      regimeScore: bd.regimeScore ?? bd.marketRegime ?? 0,
+      trendScore: bd.trendScore ?? bd.stockTrend ?? 0,
+      catalystScore: bd.catalystScore ?? bd.catalystQuality ?? 0,
+      optScore: bd.optScore ?? bd.optionRiskReward ?? 0,
+      kolScore: bd.kolScore ?? bd.kolConfirmation ?? 0,
+      riskCtrlScore: bd.riskCtrlScore ?? bd.riskControlClarity ?? 0,
+    },
+    dataStatus: decision.dataStatus || "computed-lite",
+  };
+}
 
-  // Wire up refresh on snapshot
-  document.addEventListener("specularis:snapshotReady", () => {
-    renderAIDecisionLayer(containerId, getModuleStates, window.__latestSnapshot);
+function getServerDecisions(snapshot = {}) {
+  const rows = snapshot?.terminalLite?.aiDecisionLayer;
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  const usable = rows.filter((r) => r && r.ticker && r.dataStatus !== "placeholder");
+  return usable.length ? usable.map(normalizeServerDecision) : null;
+}
+
+export function renderAIDecisionLayer(containerId, getModuleStates, initialSnapshot = {}) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  let latestSnapshot = initialSnapshot || {};
+
+  function redraw() {
+    container.classList.remove("is-loading");
+    const moduleStates = getModuleStates();
+    latestSnapshot = moduleStates.snapshot || latestSnapshot || {};
+    const hasEnrichedSip = Object.values(moduleStates.sipState || {}).some((e) => e?.enrichVersion || e?.optionsData || e?.targetMeanPrice);
+    const serverDecisions = hasEnrichedSip ? null : getServerDecisions(latestSnapshot);
+    const decisions = serverDecisions || (() => {
+      const { sipState = {}, oilState = {}, congressState = {}, kolState = {}, marketRegime = {} } = moduleStates;
+      // Use congress intel state (watchlist trades) as social signal, fall back to legacy kolState
+      const kolEntries = kolState?.entries || [];
+      return WATCHLIST.map((ticker) => {
+        const sipEntry = { ticker, ...(sipState[ticker] || {}) };
+        const oilEntry = oilState[ticker] || {};
+        return scoreDecision({ sipEntry, oilEntry, kolEntries, marketRegime });
+      });
+    })();
+
+    // Sort by score descending.
+    const sorted = [...decisions].sort((a, b) => {
+      if (a.score === null && b.score === null) return 0;
+      if (a.score === null) return 1;
+      if (b.score === null) return -1;
+      return b.score - a.score;
+    });
+
+    const cards = sorted.map((d) => renderCard(d)).join("");
+    container.innerHTML = `
+      <div class="adl-header">
+        <span class="adl-mode-badge">🤖 AI Decision Layer</span>
+        <span class="adl-header-note">综合评分 = 市场环境(2) + 股价动能(2) + 催化质量(2) + 期权(2) + 社交共振(1) + 风控(1)</span>
+      </div>
+      <div class="adl-grid">${cards}</div>
+      <p class="sip-disclaimer">⚠️ 仅供研究，不构成投资建议。For research only, not financial advice.</p>`;
+
+    // Expose decisions to prompt builder via custom event.
+    document.dispatchEvent(new CustomEvent("specularis:decisionsReady", {
+      detail: { decisions: sorted }
+    }));
+  }
+
+  redraw();
+
+  // Recompute when any module updates.
+  ["specularis:sipUpdated", "specularis:oilUpdated", "specularis:kolUpdated"].forEach((evtName) => {
+    document.addEventListener(evtName, () => redraw());
   });
+  document.addEventListener("specularis:snapshotReady", (e) => {
+    latestSnapshot = e.detail || {};
+    redraw();
+  });
+
+  return { redraw };
 }
