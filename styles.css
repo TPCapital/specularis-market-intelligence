@@ -2819,3 +2819,184 @@ body[data-risk="neutral"]  .strategy-panel h2 { color: var(--gold); }
   .ci-rank-row { grid-template-columns: 50px 1fr auto; }
   .ci-rank-meta { display: none; }
 }
+
+/* =========================================================
+   UPGRADE v7.3 — Multi-Project Integration
+   Sources: UZI-Skill · Horizon · PanWatch · daily_stock_analysis
+   ========================================================= */
+
+/* ── ADL v3.0: Multi-Lens Decision Cards ─────────────────── */
+.adl-strategy-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-0);
+}
+.adl-mode-label  { font-size: 13px; font-weight: 800; }
+.adl-mode-desc   { font-size: var(--t-sm); color: var(--text-soft); }
+.adl-score-note  { font-size: 11px; color: var(--text-muted); margin-left: auto; }
+
+/* Lens breakdown bars */
+.adl-lenses {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 8px 0;
+}
+.adl-lens {
+  display: grid;
+  grid-template-columns: 20px 64px 1fr 24px;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+.adl-lens-icon { font-size: 13px; text-align: center; }
+.adl-lens-name { color: var(--text-muted); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.adl-lens-bar-track {
+  height: 5px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.adl-lens-fill { height: 100%; border-radius: 999px; transition: width 0.5s ease; }
+.adl-lens-val { font-size: 11px; font-weight: 800; text-align: right; }
+
+/* Price row in ADL cards */
+.adl-price-row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin: 6px 0;
+}
+.adl-cur-price { font-size: 18px; font-weight: 800; }
+
+/* Strategy badge */
+.adl-strategy-badge {
+  font-size: 10px;
+  font-weight: 900;
+  padding: 2px 7px;
+  border: 1px solid;
+  border-radius: 999px;
+  letter-spacing: 0.06em;
+}
+
+/* Risk flags row */
+.adl-risk-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+.adl-risk-flag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(255,61,87,0.10);
+  color: var(--red);
+  border: 1px solid rgba(255,61,87,0.20);
+}
+
+.adl-score--placeholder { color: var(--text-muted); }
+
+/* ── Horizon-inspired News Intelligence ────────────────────── */
+.ni-header { display: flex; flex-direction: column; gap: 6px; }
+.ni-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+.ni-badge {
+  font-size: 10px;
+  font-weight: 900;
+  padding: 2px 7px;
+  border-radius: 999px;
+  letter-spacing: 0.04em;
+}
+.ni-critical { background: rgba(255,61,87,0.14); color: var(--red); border: 1px solid rgba(255,61,87,0.26); }
+.ni-high     { background: rgba(212,171,78,0.14); color: var(--gold); border: 1px solid rgba(212,171,78,0.26); }
+.ni-normal   { background: var(--surface-1); color: var(--text-muted); border: 1px solid var(--border); }
+
+.ni-ticker { font-weight: 800; }
+.ni-ticker b { font-size: 14px; margin-right: 4px; }
+.ni-ticker em { font-style: normal; font-size: 11px; color: var(--text-muted); }
+.ni-time { color: var(--text-muted); }
+.ni-impact-score {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--cyan);
+  font-variant-numeric: tabular-nums;
+}
+
+.ni-detail { margin-top: 6px; }
+.ni-expand-btn {
+  font-size: 11px;
+  color: var(--text-muted);
+  cursor: pointer;
+  list-style: none;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.ni-expand-btn:hover { color: var(--text); }
+.ni-body { padding: 8px 0 0; }
+.ni-summary { margin: 0; color: var(--text-soft); font-size: var(--t-body); line-height: 1.50; }
+.ni-context {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-left: 2px solid var(--cyan);
+  background: rgba(64,212,232,0.06);
+  border-radius: 0 6px 6px 0;
+  font-size: 11px;
+  color: var(--text-soft);
+}
+.ni-ctx-label { color: var(--cyan); font-weight: 800; margin-right: 4px; }
+
+/* ── Three-Session Tactical Prompt Buttons ─────────────────── */
+.ape-session-btns {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(95,168,255,0.20);
+  border-radius: var(--r-md);
+  background: rgba(95,168,255,0.04);
+}
+.ape-session-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--blue);
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.ape-session-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ape-session-btn {
+  flex: 1;
+  min-width: 120px;
+  padding: 9px 14px;
+  border: 1px solid rgba(95,168,255,0.28);
+  border-radius: var(--r-sm);
+  background: var(--surface-1);
+  color: var(--blue);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.15s;
+}
+.ape-session-btn:hover {
+  background: rgba(95,168,255,0.12);
+  transform: translateY(-1px);
+}

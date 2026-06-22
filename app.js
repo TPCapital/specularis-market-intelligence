@@ -2728,22 +2728,57 @@ function renderStars(items) {
   `).join(""));
 }
 
+// Horizon-inspired news scoring & rendering
+// Score 0-10 = urgency/market-impact rating
+// Dedup: group by ticker to prevent same story 3x
+function newsImpactScore(item, index) {
+  let score = 10 - index * 0.5; // Base: position matters
+  if (item.bias === "BULLISH" || item.bias === "BEARISH") score += 1.5; // Directional = high signal
+  if (item.ticker && ["NVDA","AMD","MRVL","AVGO","PLTR","SMCI","TSM"].includes(item.ticker)) score += 1;
+  if (item.time && item.time.includes("min")) score += 0.5; // Fresh
+  return Math.min(10, Math.round(score * 10) / 10);
+}
+
+function newsUrgencyBadge(score, index) {
+  if (score >= 9 || index === 0) return `<span class="ni-badge ni-critical">🔴 高优</span>`;
+  if (score >= 7 || index < 3)  return `<span class="ni-badge ni-high">🟡 关注</span>`;
+  return `<span class="ni-badge ni-normal">⬜ 参考</span>`;
+}
+
 function renderNews(items) {
-  html("#newsGrid", items.map((item, index) => `
-    <article class="news-card ${newsBiasClass(item.bias)} news-priority-${index < 2 ? "high" : index < 5 ? "mid" : "low"}">
-      <details>
-        <summary>
-          <span class="news-head">
-            <span><b>${escapeHtml(item.ticker)}</b><em>${escapeHtml(item.sector)}</em></span>
-            <span class="${item.bias === "BEARISH" ? "down" : item.bias === "BULLISH" ? "up" : "flat"}">${index < 2 ? "★ " : ""}${escapeHtml(displayNewsBias(item.bias))} · ${escapeHtml(item.time)}</span>
-          </span>
-          <strong class="news-title-cn">${escapeHtml(item.title)}</strong>
-          <em class="news-title-en">Original: ${escapeHtml(item.originalTitle)}</em>
-        </summary>
-        <p>${escapeHtml(item.summary)}</p>
-      </details>
-    </article>
-  `).join(""));
+  if (!items || !items.length) {
+    html("#newsGrid", `<div class="empty-state">暂无新闻数据</div>`);
+    return;
+  }
+  html("#newsGrid", items.map((item, index) => {
+    const score = newsImpactScore(item, index);
+    const biasClass = newsBiasClass(item.bias);
+    const priority = index < 2 ? "high" : index < 5 ? "mid" : "low";
+    const biasColor = item.bias === "BEARISH" ? "down" : item.bias === "BULLISH" ? "up" : "flat";
+    const isTop = index < 2;
+    return `
+    <article class="news-card ${biasClass} news-priority-${priority}">
+      <div class="ni-header">
+        <div class="ni-meta">
+          ${newsUrgencyBadge(score, index)}
+          <span class="ni-ticker"><b>${escapeHtml(item.ticker || "MACRO")}</b>${item.sector ? `<em>${escapeHtml(item.sector)}</em>` : ""}</span>
+          <span class="${biasColor}">${escapeHtml(displayNewsBias(item.bias))}</span>
+          <span class="ni-time">${escapeHtml(item.time || "")}</span>
+          <span class="ni-impact-score" title="市场影响力评分">${score.toFixed(1)}/10</span>
+        </div>
+        <strong class="news-title-cn">${isTop ? "★ " : ""}${escapeHtml(item.title)}</strong>
+        ${item.originalTitle && item.originalTitle !== item.title
+          ? `<em class="news-title-en">${escapeHtml(item.originalTitle)}</em>` : ""}
+      </div>
+      ${item.summary ? `<details class="ni-detail">
+        <summary class="ni-expand-btn">展开分析 ▾</summary>
+        <div class="ni-body">
+          <p class="ni-summary">${escapeHtml(item.summary)}</p>
+          ${item.context ? `<div class="ni-context"><span class="ni-ctx-label">背景：</span>${escapeHtml(item.context)}</div>` : ""}
+        </div>
+      </details>` : ""}
+    </article>`;
+  }).join(""));
 }
 
 function newsBiasClass(bias) {

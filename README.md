@@ -216,3 +216,59 @@ MIT — fork it, ship it, monetize it.
 [Live Demo](https://specularis-market-intelligence.vercel.app) · [Deploy Now](https://vercel.com/new/clone?repository-url=https://github.com/TPCapital/specularis-market-intelligence) · [Issues](https://github.com/TPCapital/specularis-market-intelligence/issues)
 
 </div>
+
+---
+
+## 🔬 Open Source Intelligence Integration
+
+Specularis v7.3 incorporates design principles and architectural patterns from 4 leading open-source market intelligence projects:
+
+### 🏛 UZI-Skill — Multi-Perspective AI Scoring
+*"51个投资大佬帮你看盘"* — Adapted for Specularis
+
+UZI-Skill's 51-investor panel concept is condensed into **5 Analyst Lenses** in the AI Decision Layer:
+
+| Lens | Focus | Inspired by |
+|---|---|---|
+| ⚡ 动能分析师 | Price momentum · RVOL · Pre-market strength | William O'Neil · Minervini |
+| 🏛 价值猎手 | Support levels · Safety margin · No-chase rule | Buffett · Klarman · Graham |
+| 🎯 事件驱动 | News catalysts · Earnings · Analyst consensus | Druckenmiller · Event-driven |
+| 📊 期权流向 | IV structure · Put/Call · Options direction | Institutional options flow |
+| 🌐 宏观环境 | Market regime · Sector rotation · Fed backdrop | Dalio · Macro regime |
+
+Each lens scores 0–3 points independently. Final score = sum across lenses (max 100). Sorted by score descending.
+
+### 📡 Horizon — News Intelligence Pipeline
+*5.4k ⭐ AI-powered news radar*
+
+Horizon's multi-source news pipeline principles applied to Specularis news feed:
+
+- **Impact Scoring**: Each news item gets a 0–10 market impact score based on position, directional bias, ticker priority, and freshness
+- **Urgency Badges**: 🔴 High Priority / 🟡 Watch / ⬜ Reference — first glance tells you what matters
+- **Background Context**: Expandable per-item context panel for unfamiliar names/events
+- **Deduplication**: Same story from multiple sources collapsed into one card
+
+### 🎯 PanWatch + daily_stock_analysis — Three-Session Tactical Prompts
+*盯盘侠 + 股票智能分析系统*
+
+The AI Prompt Export module (Tab 08) now includes **three-session tactical prompts**:
+
+| Session | Timing | Focus |
+|---|---|---|
+| 📈 盘前简报 | Pre-Market | Opening strategy · Top 3 setups · No-trade conditions |
+| 🔴 盘中研判 | Intraday | Real-time trend check · Notable moves · Stop adjustments |
+| 📋 盘后复盘 | Post-Market | Review · What worked · Tomorrow's bias |
+
+Inspired by PanWatch's `盘前分析 / 盘中监测 / 盘后日报` architecture and daily_stock_analysis's three-phase strategy system (`进攻/均衡/防守`).
+
+### 📈 daily_stock_analysis — Decision Dashboard Concept
+*29.5k ⭐ · Multi-market LLM analysis*
+
+The **Strategy Mode Banner** in the AI Decision Layer directly mirrors daily_stock_analysis's strategy output:
+
+```
+风险偏好开启（Risk-On）→ 进攻模式 → 积极参与动能标的
+风险收缩（Risk-Off）   → 防守模式 → 规避高Beta标的
+中性整理（Neutral）    → 均衡模式 → 轻仓等待方向
+```
+

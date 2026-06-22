@@ -214,6 +214,132 @@ function setLocalGeminiCache(promptHash, result) {
   } catch {}
 }
 
+
+// ── Three-Session Tactical Prompts (inspired by PanWatch + daily_stock_analysis) ──────────
+// Builds session-specific prompts: Pre-Market / Intraday / Post-Market
+function buildSessionPrompt(session, lang, states, snapshot) {
+  const { sipState = {}, oilState = {}, marketRegime = {} } = states || {};
+  const regime    = marketRegime.mode || snapshot?.risk?.mode || "Neutral";
+  const score     = snapshot?.risk?.score || 50;
+  const vix       = (snapshot?.indices || []).find(i => i.id === "VIX")?.value || "–";
+  const spy       = (snapshot?.indices || []).find(i => i.id === "SPY");
+  const qqq       = (snapshot?.indices || []).find(i => i.id === "QQQ");
+  const spyChg    = spy?.change != null ? `${spy.change >= 0 ? "+" : ""}${Number(spy.change).toFixed(2)}%` : "–";
+  const qqqChg    = qqq?.change != null ? `${qqq.change >= 0 ? "+" : ""}${Number(qqq.change).toFixed(2)}%` : "–";
+
+  const sipLines = (sipState.entries || []).slice(0, 6).map(e =>
+    `${e.ticker}(${e.sector || ""}): $${Number(e.currentPrice || 0).toFixed(2)} ${e.dailyChangePercent >= 0 ? "+" : ""}${Number(e.dailyChangePercent || 0).toFixed(2)}% | Trend:${e.trendStatus || "–"} | Risks:${(e.riskFlags || []).join(",")||"none"}`
+  ).join("\n");
+
+  const sessions = {
+    premarket: {
+      zh: `=== SPECULARIS 盘前战情简报 ===
+生成时间：${new Date().toLocaleTimeString("zh-CN")} 美东时间
+
+市场环境：${regime}（风险评分 ${score}/100）
+关键指标：SPY ${spyChg} · QQQ ${qqqChg} · VIX ${vix}
+
+观察池动态：
+${sipLines}
+
+请完成以下任务：
+1. 当前市场环境（Risk-On/Off/Neutral）研判，给出一句话开盘策略
+2. 最值得重点关注的 3 只标的，说明理由（动能 + 催化剂 + 风险）
+3. 每只标的给出：买入参考区间 · 止损位 · 目标位
+4. 今日需要规避的条件（什么情况下不操作）
+5. 最大风险警示（一条最关键的）
+
+规则：保守优先，数据不足时给观望建议，不编造数据。不构成投资建议。`,
+      en: `=== SPECULARIS PRE-MARKET BRIEF ===
+Generated: ${new Date().toLocaleTimeString("en-US")} ET
+
+Regime: ${regime} (Risk Score ${score}/100)
+Key: SPY ${spyChg} · QQQ ${qqqChg} · VIX ${vix}
+
+Watchlist Status:
+${sipLines}
+
+Tasks:
+1. Assess current market regime — give a single opening strategy sentence
+2. Top 3 watchlist names with reasoning (momentum + catalyst + risk)
+3. For each: entry zone · stop loss · target
+4. List no-trade conditions for today
+5. #1 risk to watch
+
+Rules: Conservative bias. Incomplete data → watchlist recommendation. Not financial advice.`
+    },
+    intraday: {
+      zh: `=== SPECULARIS 盘中实时研判 ===
+生成时间：${new Date().toLocaleTimeString("zh-CN")} 美东时间
+
+市场环境：${regime}（风险评分 ${score}/100）
+实时指标：SPY ${spyChg} · QQQ ${qqqChg} · VIX ${vix}
+
+持仓观察池：
+${sipLines}
+
+请分析：
+1. 当前盘中趋势是否与盘前判断一致？有什么变化？
+2. 哪些标的出现了值得关注的盘中异动（量价、突破、跌破）？
+3. 是否需要调整仓位或止损线？
+4. 后续 1-2 小时最需要关注的风险信号是什么？
+
+规则：只分析当前数据，不编造未来走势。`,
+      en: `=== SPECULARIS INTRADAY MONITOR ===
+Generated: ${new Date().toLocaleTimeString("en-US")} ET
+
+Regime: ${regime} (Risk Score ${score}/100)
+Live: SPY ${spyChg} · QQQ ${qqqChg} · VIX ${vix}
+
+Watchlist:
+${sipLines}
+
+Analyze:
+1. Is current intraday trend consistent with pre-market view? What changed?
+2. Any notable intraday moves (volume, breakouts, breakdowns)?
+3. Any position or stop adjustments needed?
+4. Key risk signals for next 1-2 hours?`
+    },
+    postmarket: {
+      zh: `=== SPECULARIS 盘后复盘 ===
+生成时间：${new Date().toLocaleTimeString("zh-CN")} 美东时间
+
+收盘环境：${regime}（风险评分 ${score}/100）
+今日表现：SPY ${spyChg} · QQQ ${qqqChg} · VIX ${vix}
+
+今日观察池结果：
+${sipLines}
+
+请完成复盘：
+1. 今日市场核心主线是什么？资金流向哪个方向？
+2. 盘前预判中哪些对了，哪些错了？原因是什么？
+3. 观察池中表现最好和最差的各一只，分析原因
+4. 明日需要关注的关键变量（宏观事件/技术位/财报等）
+5. 明日开盘策略方向（偏多/中性/偏空）+ 关键前提条件
+
+规则：客观复盘，承认错误，聚焦学习。`,
+      en: `=== SPECULARIS POST-MARKET REVIEW ===
+Generated: ${new Date().toLocaleTimeString("en-US")} ET
+
+Close: ${regime} (Risk Score ${score}/100)
+Today: SPY ${spyChg} · QQQ ${qqqChg} · VIX ${vix}
+
+Watchlist Results:
+${sipLines}
+
+Review tasks:
+1. What was the dominant market narrative today? Capital flow direction?
+2. Which pre-market calls were right, which were wrong? Why?
+3. Best and worst performers in watchlist — explain why
+4. Key variables for tomorrow (macro events/technical levels/earnings)
+5. Tomorrow's opening bias (bullish/neutral/bearish) + key preconditions`
+    }
+  };
+
+  const s = sessions[session];
+  return lang === "en" ? s.en : s.zh;
+}
+
 export function renderAIPromptExport(containerId, getModuleStates) {
   const container = document.getElementById(containerId);
   if (!container) return;
@@ -517,11 +643,49 @@ Do not fabricate GEX, options flow, insider data, or unavailable IV. If data is 
     <button class="ape-gen-btn" id="apeBtnZh">生成中文提示词</button>
     <button class="ape-gen-btn ape-gen-btn--en" id="apeBtnEn">Generate English Prompt</button>
   </div>
+  <div class="ape-session-btns">
+    <span class="ape-session-label">三段式战术提示词 · Three-Session Tactical</span>
+    <div class="ape-session-row">
+      <button class="ape-session-btn" id="apeBtnPremarket">📈 盘前简报</button>
+      <button class="ape-session-btn" id="apeBtnIntraday">🔴 盘中研判</button>
+      <button class="ape-session-btn" id="apeBtnPostmarket">📋 盘后复盘</button>
+    </div>
+  </div>
 </div>`;
 
   document.getElementById("apeBtnGeminiZh").addEventListener("click", () => runGeminiAutoAnalysis("zh"));
   document.getElementById("apeBtnGeminiEn").addEventListener("click", () => runGeminiAutoAnalysis("en"));
   document.getElementById("apeBtnAskGemini").addEventListener("click", () => runGeminiQuestion("zh"));
+
+  // Three-session tactical prompt buttons (PanWatch-inspired)
+  const sessionStates = () => ({ sipState: getModuleStates()?.sipState, oilState: getModuleStates()?.oilState, marketRegime: getModuleStates()?.marketRegime });
+  const snap = () => window.__latestSnapshot || latestSnapshot || {};
+
+  document.getElementById("apeBtnPremarket")?.addEventListener("click", () => {
+    const prompt = buildSessionPrompt("premarket", document.documentElement.dataset.lang === "en" ? "en" : "zh", sessionStates(), snap());
+    showGeneratedPrompt(prompt, document.documentElement.dataset.lang === "en" ? "Pre-Market Brief" : "盘前战情简报");
+  });
+  document.getElementById("apeBtnIntraday")?.addEventListener("click", () => {
+    const prompt = buildSessionPrompt("intraday", document.documentElement.dataset.lang === "en" ? "en" : "zh", sessionStates(), snap());
+    showGeneratedPrompt(prompt, document.documentElement.dataset.lang === "en" ? "Intraday Monitor" : "盘中实时研判");
+  });
+  document.getElementById("apeBtnPostmarket")?.addEventListener("click", () => {
+    const prompt = buildSessionPrompt("postmarket", document.documentElement.dataset.lang === "en" ? "en" : "zh", sessionStates(), snap());
+    showGeneratedPrompt(prompt, document.documentElement.dataset.lang === "en" ? "Post-Market Review" : "盘后复盘");
+  });
+
+  function showGeneratedPrompt(prompt, label) {
+    removeOutputs();
+    container.insertAdjacentHTML("beforeend", `
+      <div class="ape-output" id="apeManualPromptOutput">
+        <div class="ape-output-header">
+          <span class="ape-output-label">${label}</span>
+          <button class="ape-copy-btn" onclick="navigator.clipboard.writeText(document.getElementById('apeSessionText').value).then(()=>this.textContent='✓ 已复制').catch(()=>{})">复制 Copy</button>
+        </div>
+        <textarea class="ape-textarea" id="apeSessionText" readonly>${prompt.replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"')}</textarea>
+        <p class="ape-note">三段式战术提示词由 PanWatch + daily_stock_analysis 方法论启发构建。复制后粘贴至 GPT-4 / Claude Pro 使用。</p>
+      </div>`);
+  }
   document.getElementById("apeClearQuestionBtn").addEventListener("click", () => {
     const input = document.getElementById("apeQuestionInput");
     if (input) {
