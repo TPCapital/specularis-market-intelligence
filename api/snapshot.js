@@ -11,6 +11,8 @@ import { buildStrategySummary } from "../lib/strategy-engine.js";
 import { buildTradePlan } from "../lib/trade-plan.js";
 import { buildWatchlist } from "../lib/watchlist-engine.js";
 import { buildMarketStructurePro } from "../lib/market-structure-pro.js";
+import { getDollarLiquiditySnapshot } from "../lib/dollar-liquidity.js";
+import { getTreasuryYields } from "../lib/treasury-yields.js";
 import { buildTradeDecision } from "../lib/trade-decision-engine.js";
 
 const MARKET_SYMBOLS = {
@@ -2113,10 +2115,34 @@ async function loadAlphaVantageMacro() {
   }
 }
 
-async function loadFredMacro() {
-  const token = envValue("FRED_API_KEY");
+async function loadTreasuryYieldsDirect() {
+  // Official US Treasury XML feed — free, no key required
+  try {
+    const yields = await getTreasuryYields();
+    if (!yields.ok) return null;
+    return {
+      data: [
+        { id: "DGS2",     value: yields.dgs2  != null ? String(yields.dgs2)  : null, date: yields.date },
+        { id: "DGS10",    value: yields.dgs10 != null ? String(yields.dgs10) : null, date: yields.date },
+        { id: "DGS30",    value: yields.dgs30 != null ? String(yields.dgs30) : null, date: yields.date },
+        { id: "TWOTENSPREAD", value: yields.twoTen != null ? String(yields.twoTen) : null, date: yields.date },
+      ],
+      status: "delayed",
+      label: "US Treasury (official, no key)",
+      confidence: "HIGH",
+      fallback: false,
+      source: "treasury.gov",
+    };
+  } catch { return null; }
+}
 
-  if (!token) return { data: [], status: "unavailable", label: "FRED", error: "FRED_API_KEY is not configured" };
+async function loadFredMacro() {
+  // Try Treasury direct first (always free, no key)
+  const treasury = await loadTreasuryYieldsDirect();
+  if (treasury) return treasury;
+
+  const token = envValue("FRED_API_KEY");
+  if (!token) return { data: [], status: "unavailable", label: "FRED", error: "FRED_API_KEY not configured — using Treasury.gov fallback failed" };
   const ids = ["FEDFUNDS", "DGS10", "DGS2", "DGS30", "UNRATE", "CPIAUCSL"];
   const startedAt = Date.now();
   const latencies = [];
@@ -2920,6 +2946,10 @@ async function buildSnapshot(req) {
     status: marketData.status === "live" ? "live" : marketData.status === "delayed" ? "delayed" : "stale"
   });
   const marketBreadthLayer = await settleSource("marketBreadth", async () => marketBreadthData, generatedAt, {}, "Market Breadth Engine");
+  // DollarLiquidity.com — free, no key, fills yield/liquidity gap
+  let dollarLiquidityData = null;
+  try { dollarLiquidityData = await getDollarLiquiditySnapshot(); } catch {}
+
   let marketStructureProData = { status: "unavailable", source: "Market Structure Pro", error: "not_generated" };
   try {
     marketStructureProData = buildMarketStructurePro({
@@ -3253,6 +3283,7 @@ async function buildSnapshot(req) {
         marketBreadth: marketBreadthLayer,
         marketStructurePro: marketStructureProSource,
         yieldCurve: source("yieldCurve", marketStructureProData.yieldCurve || {}, marketStructureProData.yieldCurve?.status || "proxy", generatedAt, "Yield Curve Pro", { confidence: marketStructureProData.yieldCurve?.confidence || "LOW" }),
+      dollarLiquidity: source("dollarLiquidity", dollarLiquidityData || {}, dollarLiquidityData ? "live" : "unavailable", generatedAt, "DollarLiquidity.com", { confidence: dollarLiquidityData ? "HIGH" : "LOW" }),
         oilLayer: source("oilLayer", marketStructureProData.oil || {}, marketStructureProData.oil?.status || "proxy", generatedAt, "Oil Market Layer", { confidence: marketStructureProData.oil?.confidence || "LOW" }),
         fedWatch: source("fedWatch", marketStructureProData.fedWatch || {}, marketStructureProData.fedWatch?.status || "proxy", generatedAt, "FedWatch Proxy", { confidence: marketStructureProData.fedWatch?.confidence || "LOW" }),
         breadthPro: source("breadthPro", marketStructureProData.breadthPro || {}, marketStructureProData.breadthPro?.status || "proxy", generatedAt, "Breadth Pro", { confidence: marketStructureProData.breadthPro?.confidence || "LOW" }),

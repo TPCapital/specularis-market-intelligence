@@ -44,37 +44,52 @@ function displayAiSource(value) {
 }
 
 function buildPrompt(lang, { sipState, oilState, kolState, marketRegime, decisions }) {
-  const now = new Date().toLocaleString("zh-CN", { timeZone: "America/New_York", hour12: false });
+  const now = lang === "en"
+    ? new Date().toLocaleString("en-US", { timeZone: "America/New_York", hour12: false })
+    : new Date().toLocaleString("zh-CN", { timeZone: "America/New_York", hour12: false });
   const regimeStr = marketRegime?.label || marketRegime?.mode || "未知";
   const regimeScore = marketRegime?.score ?? "--";
   const kolEntries = kolState?.entries || [];
 
+  // Build language-aware data lines
   const sipLines = TICKERS.map((t) => {
     const s = sipState?.[t] || {};
     const price = s.currentPrice ? `$${s.currentPrice}` : "N/A";
     const change = s.dailyChangePercent != null ? `${s.dailyChangePercent}%` : "N/A";
     const news = Array.isArray(s.recentNews) && s.recentNews.length > 0
       ? (typeof s.recentNews[0] === "object" ? s.recentNews[0].title : s.recentNews[0])
-      : "无";
+      : (lang === "en" ? "none" : "无");
+    if (lang === "en") {
+      return `  ${t}: price=${price} chg=${change} trend=${s.trendStatus || "N/A"} analyst=${s.analystTone || "N/A"} earnings=${s.earningsDate || "unknown"} news=${news}`;
+    }
     return `  ${t}: 价格${price} 涨跌${change} 趋势${trendZh(s.trendStatus)} 分析师${s.analystTone || "N/A"} 财报${s.earningsDate || "未知"} 新闻:${news}`;
   }).join("\n");
 
   const oilLines = TICKERS.map((t) => {
     const o = oilState?.[t] || {};
+    if (lang === "en") {
+      return `  ${t}: structure=${o.preferredStructure || "wait"} IV=${o.ivStatus || "N/A"} earnings_risk=${o.earningsVolRisk ? "yes" : "no"} risk=${o.riskLevel || "N/A"}`;
+    }
     return `  ${t}: 结构${STRUCTURE_LABELS[o.preferredStructure] || o.preferredStructure || "wait"} IV${o.ivStatus || "N/A"} 财报风险${o.earningsVolRisk ? "是" : "否"} 风险${o.riskLevel || "N/A"}`;
   }).join("\n");
 
   const kolLines = kolEntries.length > 0
-    ? kolEntries.slice(0, 6).map((k) =>
-        `  @${k.kolHandle}: ${k.stance} (${k.convictionLevel}信心) [${k.signalType}] 涉及:${(k.mentionedTickers || []).join(",")} - ${(k.keyArguments || [k.aiDistillationSummary || "无论点"])[0]}`
-      ).join("\n")
-    : "  暂无 KOL 输入";
+    ? kolEntries.slice(0, 6).map((k) => {
+        if (lang === "en") {
+          return `  @${k.kolHandle}: ${k.stance} (conviction:${k.convictionLevel}) [${k.signalType}] tickers:${(k.mentionedTickers || []).join(",")} - ${(k.keyArguments || [k.aiDistillationSummary || "no thesis"])[0]}`;
+        }
+        return `  @${k.kolHandle}: ${k.stance} (${k.convictionLevel}信心) [${k.signalType}] 涉及:${(k.mentionedTickers || []).join(",")} - ${(k.keyArguments || [k.aiDistillationSummary || "无论点"])[0]}`;
+      }).join("\n")
+    : (lang === "en" ? "  No KOL input" : "  暂无 KOL 输入");
 
   const decisionLines = decisions && decisions.length > 0
-    ? decisions.filter((d) => d.score !== null).slice(0, 5).map((d) =>
-        `  ${d.ticker}: ${d.score}/10 [${d.rating}] 动作:${d.action} 工具:${d.preferredVehicle} 进场:${d.keyEntryZone || "N/A"} 止损:${d.invalidationLevel || "N/A"} 目标:${d.targetZone || "N/A"}`
-      ).join("\n") || "  暂无有效评分"
-    : "  暂无有效评分";
+    ? decisions.filter((d) => d.score !== null).slice(0, 5).map((d) => {
+        if (lang === "en") {
+          return `  ${d.ticker}: ${d.score}/10 [${d.rating}] action=${d.action} vehicle=${d.preferredVehicle} entry=${d.keyEntryZone || "N/A"} stop=${d.invalidationLevel || "N/A"} target=${d.targetZone || "N/A"}`;
+        }
+        return `  ${d.ticker}: ${d.score}/10 [${d.rating}] 动作:${d.action} 工具:${d.preferredVehicle} 进场:${d.keyEntryZone || "N/A"} 止损:${d.invalidationLevel || "N/A"} 目标:${d.targetZone || "N/A"}`;
+      }).join("\n") || (lang === "en" ? "  No valid scores" : "  暂无有效评分")
+    : (lang === "en" ? "  No valid scores" : "  暂无有效评分");
 
   if (lang === "en") {
     return `
@@ -199,6 +214,132 @@ function setLocalGeminiCache(promptHash, result) {
   } catch {}
 }
 
+
+// ── Three-Session Tactical Prompts (inspired by PanWatch + daily_stock_analysis) ──────────
+// Builds session-specific prompts: Pre-Market / Intraday / Post-Market
+function buildSessionPrompt(session, lang, states, snapshot) {
+  const { sipState = {}, oilState = {}, marketRegime = {} } = states || {};
+  const regime    = marketRegime.mode || snapshot?.risk?.mode || "Neutral";
+  const score     = snapshot?.risk?.score || 50;
+  const vix       = (snapshot?.indices || []).find(i => i.id === "VIX")?.value || "–";
+  const spy       = (snapshot?.indices || []).find(i => i.id === "SPY");
+  const qqq       = (snapshot?.indices || []).find(i => i.id === "QQQ");
+  const spyChg    = spy?.change != null ? `${spy.change >= 0 ? "+" : ""}${Number(spy.change).toFixed(2)}%` : "–";
+  const qqqChg    = qqq?.change != null ? `${qqq.change >= 0 ? "+" : ""}${Number(qqq.change).toFixed(2)}%` : "–";
+
+  const sipLines = (sipState.entries || []).slice(0, 6).map(e =>
+    `${e.ticker}(${e.sector || ""}): $${Number(e.currentPrice || 0).toFixed(2)} ${e.dailyChangePercent >= 0 ? "+" : ""}${Number(e.dailyChangePercent || 0).toFixed(2)}% | Trend:${e.trendStatus || "–"} | Risks:${(e.riskFlags || []).join(",")||"none"}`
+  ).join("\n");
+
+  const sessions = {
+    premarket: {
+      zh: `=== SPECULARIS 盘前战情简报 ===
+生成时间：${new Date().toLocaleTimeString("zh-CN")} 美东时间
+
+市场环境：${regime}（风险评分 ${score}/100）
+关键指标：SPY ${spyChg} · QQQ ${qqqChg} · VIX ${vix}
+
+观察池动态：
+${sipLines}
+
+请完成以下任务：
+1. 当前市场环境（Risk-On/Off/Neutral）研判，给出一句话开盘策略
+2. 最值得重点关注的 3 只标的，说明理由（动能 + 催化剂 + 风险）
+3. 每只标的给出：买入参考区间 · 止损位 · 目标位
+4. 今日需要规避的条件（什么情况下不操作）
+5. 最大风险警示（一条最关键的）
+
+规则：保守优先，数据不足时给观望建议，不编造数据。不构成投资建议。`,
+      en: `=== SPECULARIS PRE-MARKET BRIEF ===
+Generated: ${new Date().toLocaleTimeString("en-US")} ET
+
+Regime: ${regime} (Risk Score ${score}/100)
+Key: SPY ${spyChg} · QQQ ${qqqChg} · VIX ${vix}
+
+Watchlist Status:
+${sipLines}
+
+Tasks:
+1. Assess current market regime — give a single opening strategy sentence
+2. Top 3 watchlist names with reasoning (momentum + catalyst + risk)
+3. For each: entry zone · stop loss · target
+4. List no-trade conditions for today
+5. #1 risk to watch
+
+Rules: Conservative bias. Incomplete data → watchlist recommendation. Not financial advice.`
+    },
+    intraday: {
+      zh: `=== SPECULARIS 盘中实时研判 ===
+生成时间：${new Date().toLocaleTimeString("zh-CN")} 美东时间
+
+市场环境：${regime}（风险评分 ${score}/100）
+实时指标：SPY ${spyChg} · QQQ ${qqqChg} · VIX ${vix}
+
+持仓观察池：
+${sipLines}
+
+请分析：
+1. 当前盘中趋势是否与盘前判断一致？有什么变化？
+2. 哪些标的出现了值得关注的盘中异动（量价、突破、跌破）？
+3. 是否需要调整仓位或止损线？
+4. 后续 1-2 小时最需要关注的风险信号是什么？
+
+规则：只分析当前数据，不编造未来走势。`,
+      en: `=== SPECULARIS INTRADAY MONITOR ===
+Generated: ${new Date().toLocaleTimeString("en-US")} ET
+
+Regime: ${regime} (Risk Score ${score}/100)
+Live: SPY ${spyChg} · QQQ ${qqqChg} · VIX ${vix}
+
+Watchlist:
+${sipLines}
+
+Analyze:
+1. Is current intraday trend consistent with pre-market view? What changed?
+2. Any notable intraday moves (volume, breakouts, breakdowns)?
+3. Any position or stop adjustments needed?
+4. Key risk signals for next 1-2 hours?`
+    },
+    postmarket: {
+      zh: `=== SPECULARIS 盘后复盘 ===
+生成时间：${new Date().toLocaleTimeString("zh-CN")} 美东时间
+
+收盘环境：${regime}（风险评分 ${score}/100）
+今日表现：SPY ${spyChg} · QQQ ${qqqChg} · VIX ${vix}
+
+今日观察池结果：
+${sipLines}
+
+请完成复盘：
+1. 今日市场核心主线是什么？资金流向哪个方向？
+2. 盘前预判中哪些对了，哪些错了？原因是什么？
+3. 观察池中表现最好和最差的各一只，分析原因
+4. 明日需要关注的关键变量（宏观事件/技术位/财报等）
+5. 明日开盘策略方向（偏多/中性/偏空）+ 关键前提条件
+
+规则：客观复盘，承认错误，聚焦学习。`,
+      en: `=== SPECULARIS POST-MARKET REVIEW ===
+Generated: ${new Date().toLocaleTimeString("en-US")} ET
+
+Close: ${regime} (Risk Score ${score}/100)
+Today: SPY ${spyChg} · QQQ ${qqqChg} · VIX ${vix}
+
+Watchlist Results:
+${sipLines}
+
+Review tasks:
+1. What was the dominant market narrative today? Capital flow direction?
+2. Which pre-market calls were right, which were wrong? Why?
+3. Best and worst performers in watchlist — explain why
+4. Key variables for tomorrow (macro events/technical levels/earnings)
+5. Tomorrow's opening bias (bullish/neutral/bearish) + key preconditions`
+    }
+  };
+
+  const s = sessions[session];
+  return lang === "en" ? s.en : s.zh;
+}
+
 export function renderAIPromptExport(containerId, getModuleStates) {
   const container = document.getElementById(containerId);
   if (!container) return;
@@ -230,7 +371,13 @@ export function renderAIPromptExport(containerId, getModuleStates) {
       const s = sipState[ticker] || (tl.stockIntelligencePro || []).find((x) => x.ticker === ticker) || {};
       const o = oilState[ticker] || (tl.optionsIntelligenceLite || []).find((x) => x.ticker === ticker) || {};
       const risks = Array.isArray(s.riskFlags) && s.riskFlags.length ? s.riskFlags.join("/") : "none";
-      return `${ticker}: price=${fmt(s.currentPrice)} change=${fmt(s.dailyChangePercent)}% trend=${trendZh(s.trendStatus)} risks=${risks}; option=${STRUCTURE_LABELS[o.preferredStructure] || o.preferredStructure || "wait"} iv=${o.ivStatus || "N/A"} optionRisk=${o.riskLevel || "N/A"}`;
+      const trendLabel = lang === "en"
+        ? (s.trendStatus || "unknown")
+        : trendZh(s.trendStatus);
+      const structLabel = lang === "en"
+        ? (o.preferredStructure || "wait")
+        : (STRUCTURE_LABELS[o.preferredStructure] || o.preferredStructure || "wait");
+      return `${ticker}: price=${fmt(s.currentPrice)} change=${fmt(s.dailyChangePercent)}% trend=${trendLabel} risks=${risks}; option=${structLabel} iv=${o.ivStatus || "N/A"} risk=${o.riskLevel || "N/A"}`;
     }).join("\n");
 
     const topDecisionLines = decisions
@@ -334,17 +481,27 @@ Do not fabricate GEX, options flow, insider data, or unavailable IV. If data is 
     geminiCooldownTimer = setInterval(tick, 1000);
   }
 
-  function generateAndShow(lang) {
-    const prompt = buildCurrentPrompt(lang);
+  function generateAndShow(targetLang) {
+    // Hard-enforce: "en" button always produces English, "zh" always Chinese
+    const lang = (targetLang === "en") ? "en" : "zh";
+    // Optionally include the user question from the textarea
+    const questionInput = document.getElementById("apeQuestionInput");
+    const userQuestion = (questionInput?.value || "").trim();
+    const prompt = userQuestion
+      ? buildCompactPrompt(lang, userQuestion)
+      : buildCurrentPrompt(lang);
     removeOutputs();
+    const langLabel = lang === "en" ? "English Prompt" : "中文提示词";
     const outputHtml = `
 <div class="ape-output" id="apeManualPromptOutput">
   <div class="ape-output-header">
-    <span class="ape-output-label">Generated Prompt - ${lang === "en" ? "English" : "中文"}</span>
+    <span class="ape-output-label">Generated ${escHtml(langLabel)}</span>
     <button class="ape-copy-btn" id="apeCopyBtn">复制 Copy</button>
   </div>
   <textarea class="ape-textarea" id="apePromptText" readonly>${escHtml(prompt)}</textarea>
-  <p class="ape-note">可手动复制到 GPT Plus / Claude Pro 等工具。AI Router 自动分析会使用更短的 compact prompt，避免触发 rate limit。</p>
+  <p class="ape-note">${lang === "en"
+    ? "Copy to GPT-4 / Claude Pro. AI Router uses a shorter compact prompt to avoid rate limits."
+    : "可手动复制到 GPT Plus / Claude Pro 等工具。AI Router 自动分析使用更短的 compact prompt。"}</p>
 </div>`;
     container.insertAdjacentHTML("beforeend", outputHtml);
     document.getElementById("apeCopyBtn").addEventListener("click", () => {
@@ -469,7 +626,10 @@ Do not fabricate GEX, options flow, insider data, or unavailable IV. If data is 
     <div class="ape-output-header">
       <span class="ape-output-label">Web AI Q&amp;A / 网页内问答</span>
     </div>
-    <textarea class="ape-textarea" id="apeQuestionInput" rows="4" placeholder="输入你的问题，例如：今天 AMD 和 NVDA 哪个更适合做 0DTE？风险点是什么？"></textarea>
+    <textarea class="ape-textarea" id="apeQuestionInput" rows="4"
+      data-placeholder-zh="输入你的问题，例如：今天 AMD 和 NVDA 哪个更适合做 0DTE？风险点是什么？"
+      data-placeholder-en="Ask a question, e.g.: Which is more tradable today — AMD or NVDA for 0DTE? What are the key risks?"
+      placeholder="输入你的问题，例如：今天 AMD 和 NVDA 哪个更适合做 0DTE？风险点是什么？"></textarea>
     <div class="ape-btn-row">
       <button class="ape-gen-btn" id="apeBtnAskGemini">网页内 AI 分析</button>
       <button class="ape-copy-btn" id="apeClearQuestionBtn">清空</button>
@@ -483,11 +643,49 @@ Do not fabricate GEX, options flow, insider data, or unavailable IV. If data is 
     <button class="ape-gen-btn" id="apeBtnZh">生成中文提示词</button>
     <button class="ape-gen-btn ape-gen-btn--en" id="apeBtnEn">Generate English Prompt</button>
   </div>
+  <div class="ape-session-btns">
+    <span class="ape-session-label">三段式战术提示词 · Three-Session Tactical</span>
+    <div class="ape-session-row">
+      <button class="ape-session-btn" id="apeBtnPremarket">📈 盘前简报</button>
+      <button class="ape-session-btn" id="apeBtnIntraday">🔴 盘中研判</button>
+      <button class="ape-session-btn" id="apeBtnPostmarket">📋 盘后复盘</button>
+    </div>
+  </div>
 </div>`;
 
   document.getElementById("apeBtnGeminiZh").addEventListener("click", () => runGeminiAutoAnalysis("zh"));
   document.getElementById("apeBtnGeminiEn").addEventListener("click", () => runGeminiAutoAnalysis("en"));
   document.getElementById("apeBtnAskGemini").addEventListener("click", () => runGeminiQuestion("zh"));
+
+  // Three-session tactical prompt buttons (PanWatch-inspired)
+  const sessionStates = () => ({ sipState: getModuleStates()?.sipState, oilState: getModuleStates()?.oilState, marketRegime: getModuleStates()?.marketRegime });
+  const snap = () => window.__latestSnapshot || latestSnapshot || {};
+
+  document.getElementById("apeBtnPremarket")?.addEventListener("click", () => {
+    const prompt = buildSessionPrompt("premarket", document.documentElement.dataset.lang === "en" ? "en" : "zh", sessionStates(), snap());
+    showGeneratedPrompt(prompt, document.documentElement.dataset.lang === "en" ? "Pre-Market Brief" : "盘前战情简报");
+  });
+  document.getElementById("apeBtnIntraday")?.addEventListener("click", () => {
+    const prompt = buildSessionPrompt("intraday", document.documentElement.dataset.lang === "en" ? "en" : "zh", sessionStates(), snap());
+    showGeneratedPrompt(prompt, document.documentElement.dataset.lang === "en" ? "Intraday Monitor" : "盘中实时研判");
+  });
+  document.getElementById("apeBtnPostmarket")?.addEventListener("click", () => {
+    const prompt = buildSessionPrompt("postmarket", document.documentElement.dataset.lang === "en" ? "en" : "zh", sessionStates(), snap());
+    showGeneratedPrompt(prompt, document.documentElement.dataset.lang === "en" ? "Post-Market Review" : "盘后复盘");
+  });
+
+  function showGeneratedPrompt(prompt, label) {
+    removeOutputs();
+    container.insertAdjacentHTML("beforeend", `
+      <div class="ape-output" id="apeManualPromptOutput">
+        <div class="ape-output-header">
+          <span class="ape-output-label">${label}</span>
+          <button class="ape-copy-btn" onclick="navigator.clipboard.writeText(document.getElementById('apeSessionText').value).then(()=>this.textContent='✓ 已复制').catch(()=>{})">复制 Copy</button>
+        </div>
+        <textarea class="ape-textarea" id="apeSessionText" readonly>${prompt.replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"')}</textarea>
+        <p class="ape-note">三段式战术提示词由 PanWatch + daily_stock_analysis 方法论启发构建。复制后粘贴至 GPT-4 / Claude Pro 使用。</p>
+      </div>`);
+  }
   document.getElementById("apeClearQuestionBtn").addEventListener("click", () => {
     const input = document.getElementById("apeQuestionInput");
     if (input) {
@@ -497,6 +695,24 @@ Do not fabricate GEX, options flow, insider data, or unavailable IV. If data is 
   });
   document.getElementById("apeBtnZh").addEventListener("click", () => generateAndShow("zh"));
   document.getElementById("apeBtnEn").addEventListener("click", () => generateAndShow("en"));
+
+  // Update textarea placeholder based on current language
+  function updatePlaceholderLang() {
+    const ta = document.getElementById("apeQuestionInput");
+    if (!ta) return;
+    const isEn = document.documentElement.dataset.lang === "en";
+    const ph = isEn
+      ? (ta.dataset.placeholderEn || "Ask a question, e.g.: Which is more tradable today — AMD or NVDA? What are the key risks?")
+      : (ta.dataset.placeholderZh || "输入你的问题，例如：今天 AMD 和 NVDA 哪个更适合做 0DTE？风险点是什么？");
+    ta.setAttribute("placeholder", ph);
+    if (ta.value === "" || ta.value === ta.dataset.lastPlaceholder) {
+      ta.dataset.lastPlaceholder = ph;
+    }
+  }
+  updatePlaceholderLang();
+  // Watch for language changes
+  const _langObserver = new MutationObserver(() => updatePlaceholderLang());
+  _langObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-lang"] });
 
   document.addEventListener("specularis:snapshotReady", () => {
     renderAIPromptExport(containerId, getModuleStates);
