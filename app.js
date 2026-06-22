@@ -2283,14 +2283,46 @@ function sourceRole(key) {
   }[key];
 }
 
+// Gauge config: [min, max, zones: [[upTo, color, label]...]]
+const GAUGE_CFG = {
+  "Fear & Greed": { min:0,  max:100, zones:[[25,"#ff3d57","极度恐慌"],[45,"#d4ab4e","恐慌"],[55,"#7a8194","中性"],[75,"#40d4e8","偏乐观"],[100,"#1adb7e","极度贪婪"]] },
+  "RSI":          { min:0,  max:100, zones:[[30,"#ff3d57","超卖"],[50,"#d4ab4e","弱势"],[70,"#7a8194","中性"],[80,"#40d4e8","偏强"],[100,"#ff3d57","超买"]] },
+  "Put/Call":     { min:0,  max:2.0, zones:[[0.6,"#1adb7e","看多"],[0.9,"#40d4e8","偏多"],[1.1,"#7a8194","中性"],[1.4,"#d4ab4e","偏空"],[2.0,"#ff3d57","极度恐慌"]] },
+};
+
+function makeMiniGauge(id, value, min, max) {
+  const cfg = GAUGE_CFG[id];
+  if (!cfg) return "";
+  const pct = Math.max(0, Math.min(100, ((Number(value) - cfg.min) / (cfg.max - cfg.min)) * 100));
+  // Find zone color and label
+  let zoneColor = "#7a8194", zoneLabel = "";
+  for (const [upTo, color, label] of cfg.zones) {
+    const upToPct = ((upTo - cfg.min) / (cfg.max - cfg.min)) * 100;
+    if (pct <= upToPct) { zoneColor = color; zoneLabel = label; break; }
+  }
+  return `<div class="mg-wrap">
+    <div class="mg-bar-track">
+      <div class="mg-bar-fill" style="width:${pct.toFixed(1)}%;background:${zoneColor}"></div>
+      <div class="mg-needle" style="left:${pct.toFixed(1)}%"></div>
+    </div>
+    <div class="mg-labels">
+      <span style="color:#4a5068">${escapeHtml(String(cfg.min))}</span>
+      <span class="mg-zone" style="color:${zoneColor}">${escapeHtml(zoneLabel)}</span>
+      <span style="color:#4a5068">${escapeHtml(String(cfg.max))}</span>
+    </div>
+  </div>`;
+}
+
 function renderMetricGrid(selector, items, type = "index") {
   html(selector, items.map((item) => {
     const inverse = ["VIX", "TNX", "GOLD", "DXY", "Put/Call"].includes(item.id);
+    const gauge = type === "sentiment" ? makeMiniGauge(item.id, item.value, 0, 100) : "";
     return `
       <article class="metric-card quality-${escapeHtml(item.dataQuality || "snapshot")}">
         <div class="metric-head"><span>${escapeHtml(displayMetricId(item.id))}</span><span>${escapeHtml(displayMetricName(item.name || ""))}</span></div>
         <div class="metric-value">${formatNumber(item.value)}</div>
         <div class="metric-change ${changeClass(item.change, inverse)}">${type === "sentiment" && item.id !== "Put/Call" ? signedRaw(item.change) : signed(item.change)}</div>
+        ${gauge}
         <p>${escapeHtml(item.note)}</p>
       </article>
     `;
@@ -2696,22 +2728,57 @@ function renderStars(items) {
   `).join(""));
 }
 
+// Horizon-inspired news scoring & rendering
+// Score 0-10 = urgency/market-impact rating
+// Dedup: group by ticker to prevent same story 3x
+function newsImpactScore(item, index) {
+  let score = 10 - index * 0.5; // Base: position matters
+  if (item.bias === "BULLISH" || item.bias === "BEARISH") score += 1.5; // Directional = high signal
+  if (item.ticker && ["NVDA","AMD","MRVL","AVGO","PLTR","SMCI","TSM"].includes(item.ticker)) score += 1;
+  if (item.time && item.time.includes("min")) score += 0.5; // Fresh
+  return Math.min(10, Math.round(score * 10) / 10);
+}
+
+function newsUrgencyBadge(score, index) {
+  if (score >= 9 || index === 0) return `<span class="ni-badge ni-critical">🔴 高优</span>`;
+  if (score >= 7 || index < 3)  return `<span class="ni-badge ni-high">🟡 关注</span>`;
+  return `<span class="ni-badge ni-normal">⬜ 参考</span>`;
+}
+
 function renderNews(items) {
-  html("#newsGrid", items.map((item, index) => `
-    <article class="news-card ${newsBiasClass(item.bias)} news-priority-${index < 2 ? "high" : index < 5 ? "mid" : "low"}">
-      <details>
-        <summary>
-          <span class="news-head">
-            <span><b>${escapeHtml(item.ticker)}</b><em>${escapeHtml(item.sector)}</em></span>
-            <span class="${item.bias === "BEARISH" ? "down" : item.bias === "BULLISH" ? "up" : "flat"}">${index < 2 ? "★ " : ""}${escapeHtml(displayNewsBias(item.bias))} · ${escapeHtml(item.time)}</span>
-          </span>
-          <strong class="news-title-cn">${escapeHtml(item.title)}</strong>
-          <em class="news-title-en">Original: ${escapeHtml(item.originalTitle)}</em>
-        </summary>
-        <p>${escapeHtml(item.summary)}</p>
-      </details>
-    </article>
-  `).join(""));
+  if (!items || !items.length) {
+    html("#newsGrid", `<div class="empty-state">暂无新闻数据</div>`);
+    return;
+  }
+  html("#newsGrid", items.map((item, index) => {
+    const score = newsImpactScore(item, index);
+    const biasClass = newsBiasClass(item.bias);
+    const priority = index < 2 ? "high" : index < 5 ? "mid" : "low";
+    const biasColor = item.bias === "BEARISH" ? "down" : item.bias === "BULLISH" ? "up" : "flat";
+    const isTop = index < 2;
+    return `
+    <article class="news-card ${biasClass} news-priority-${priority}">
+      <div class="ni-header">
+        <div class="ni-meta">
+          ${newsUrgencyBadge(score, index)}
+          <span class="ni-ticker"><b>${escapeHtml(item.ticker || "MACRO")}</b>${item.sector ? `<em>${escapeHtml(item.sector)}</em>` : ""}</span>
+          <span class="${biasColor}">${escapeHtml(displayNewsBias(item.bias))}</span>
+          <span class="ni-time">${escapeHtml(item.time || "")}</span>
+          <span class="ni-impact-score" title="市场影响力评分">${score.toFixed(1)}/10</span>
+        </div>
+        <strong class="news-title-cn">${isTop ? "★ " : ""}${escapeHtml(item.title)}</strong>
+        ${item.originalTitle && item.originalTitle !== item.title
+          ? `<em class="news-title-en">${escapeHtml(item.originalTitle)}</em>` : ""}
+      </div>
+      ${item.summary ? `<details class="ni-detail">
+        <summary class="ni-expand-btn">展开分析 ▾</summary>
+        <div class="ni-body">
+          <p class="ni-summary">${escapeHtml(item.summary)}</p>
+          ${item.context ? `<div class="ni-context"><span class="ni-ctx-label">背景：</span>${escapeHtml(item.context)}</div>` : ""}
+        </div>
+      </details>` : ""}
+    </article>`;
+  }).join(""));
 }
 
 function newsBiasClass(bias) {
