@@ -107,30 +107,9 @@
     "个股情报 Pro": "Stock Intelligence Pro",
     "期权与波动率": "Options & Volatility",
     "KOL 观点蒸馏": "KOL Distillation",
-    "政要持股情报": "Congress Trading Intelligence",
-    "国会持股活跃榜": "Congress Activity Rank",
-    "最新持股申报": "Latest Disclosures",
-    "近90天申报 · 买卖量排序": "Last 90 days · Sorted by volume",
-    "观察池标的": "Watchlist tickers",
-    "社交情报 · Social Intelligence": "Social Intelligence",
-    "StockTwits 热搜榜": "StockTwits Trending",
-    "观察池情绪流": "Watchlist Sentiment",
-    "Reddit 热帖信号": "Reddit Hot Posts",
-    "暂无数据": "No data available",
-    "暂无近期申报记录": "No recent disclosures",
-    "近90天申报 · 共": "Last 90 days · Total",
-    "众议院": "House",
-    "参议院": "Senate",
-    "买入 BUY": "BUY",
-    "卖出 SELL": "SELL",
-    "国会 × 社交共振信号": "Congress × Social Confluence Signal",
-    "同时出现在国会持股变动 &amp; 社交热搜，值得重点关注": "Appearing in both congress disclosures & social trending. Worth watching.",
-    "政策要员持股情报，全程免费自动抓取": "Congress Trading Intelligence — fully automated, free",
     "AI 决策层": "AI Decision Layer",
     "生成 AI 提示词": "Generate AI Prompt",
     "KOL · AI 决策": "KOL · AI Decision",
-    "政要持股 · 情报": "Congress Intel",
-    "Congress Intel": "Congress Intel",
     "模块加载中": "Loading module",
     "免费版代理信号 · Lite Mode Proxy Signals": "Free-tier proxy signals · Lite Mode",
     "手动输入 · Manual Input Mode": "Manual Input Mode",
@@ -603,10 +582,10 @@
       }
       html[data-lang="en"] .topbar {
         display: grid;
-        grid-template-columns: 1fr auto;
+        grid-template-columns: minmax(420px, 760px) minmax(460px, 1fr);
         align-items: end;
-        gap: 16px;
-        margin-bottom: 20px;
+        gap: 18px;
+        margin-bottom: 22px;
       }
       html[data-lang="en"] h1 {
         max-width: 760px;
@@ -618,10 +597,10 @@
       html[data-lang="en"] .meta {
         justify-content: flex-end;
         flex-wrap: wrap;
-        row-gap: 4px;
-        white-space: nowrap;
-        line-height: 1.4;
-        max-width: none;
+        row-gap: 8px;
+        white-space: normal;
+        line-height: 1.2;
+        max-width: 760px;
         margin-left: auto;
       }
       html[data-lang="en"] .meta > span,
@@ -630,15 +609,12 @@
         align-items: center;
         min-height: 28px;
       }
-      html[data-lang="en"] .workspace-nav { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-      html[data-lang="en"] .workspace-tab { min-height: 56px; padding: 10px 12px; }
+      html[data-lang="en"] .workspace-nav { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+      html[data-lang="en"] .workspace-tab { min-height: 70px; padding: 13px 14px; }
       html[data-lang="en"] .workspace-tab strong {
-        font-size: clamp(11px, .95vw, 14px);
-        line-height: 1.10;
+        font-size: clamp(12px, .88vw, 14px);
+        line-height: 1.08;
         letter-spacing: .01em;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
       }
       html[data-lang="en"] .workspace-tab em { font-size: 10px; letter-spacing: .15em; }
       html[data-lang="en"] .command-deck { grid-template-columns: repeat(5, minmax(0, 1fr)); }
@@ -658,11 +634,8 @@
       @media (max-width: 1180px) {
         html[data-lang="en"] .topbar { grid-template-columns: 1fr; }
         html[data-lang="en"] .meta { justify-content: flex-start; max-width: none; margin-left: 0; }
-        html[data-lang="en"] .workspace-nav { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-        html[data-lang="en"] .command-deck { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      }
-      @media (max-width: 900px) {
         html[data-lang="en"] .workspace-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        html[data-lang="en"] .command-deck { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       }
     `;
     document.head.appendChild(style);
