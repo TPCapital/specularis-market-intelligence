@@ -1,0 +1,14 @@
+{
+  "name": "specularis-market-terminal-lite",
+  "version": "1.6.0",
+  "type": "module",
+  "engines": {
+    "node": "20.x"
+  },
+  "scripts": {
+    "build": "node scripts/build-static.js",
+    "dev": "node scripts/dev-server.js",
+    "preview": "node scripts/dev-server.js",
+    "verify": "node scripts/verify-build.js && npm run build"
+  }
+}
