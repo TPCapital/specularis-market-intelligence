@@ -137,31 +137,54 @@ async function fetchJson(url, timeout=12000) {
 }
 
 function extractRows(snapshot={}) {
-  const candidates = [
+  // Priority 1: pre-scored opportunity / mover arrays
+  const oppCandidates = [
     snapshot?.opportunities, snapshot?.terminalLite?.opportunities,
     snapshot?.marketData?.opportunities, snapshot?.movers, snapshot?.marketData?.movers,
   ];
-  const rows = candidates.find(Array.isArray)||[];
-  const normalized = rows.map((row,i)=>({
-    ticker: String(row.ticker||row.symbol||row.code||TICKERS[i%TICKERS.length]).toUpperCase(),
-    name: row.name||row.company||row.ticker||TICKERS[i%TICKERS.length],
-    change: num(row.changePercent??row.change??row.pct??0),
-    volume: num(row.relativeVolume??row.rvol??row.volumeRatio??1),
-    score:  clamp(row.score??row.aiScore??55+Math.random()*25),
-    sector: row.sector||inferTheme(row.ticker||row.symbol||""),
-    catalyst: row.catalyst||row.reason||row.headline||inferCatalyst(row.ticker||row.symbol||""),
-    source: row.source||"snapshot",
-    news: row.news||[],
-    analystTone: row.analystTone||"",
-    riskFlags: row.riskFlags||[],
-    trendStatus: row.trendStatus||"",
-  }));
-  if (normalized.length) return normalized.slice(0,12);
-  return TICKERS.slice(0,6).map((ticker,i)=>({
-    ticker, name:ticker, change:0, volume:1, score:55, sector:inferTheme(ticker), catalyst:inferCatalyst(ticker)
+  let rows = oppCandidates.find(Array.isArray) || [];
+
+  // Priority 2: fall back to raw quotes (most reliably populated)
+  if (!rows.length) {
+    const quoteSources = [
+      snapshot?.marketData?.quotes,
+      snapshot?.sources?.marketData?.data?.quotes,
+      snapshot?.terminalLite?.stockIntelligencePro,
+    ];
+    for (const src of quoteSources) {
+      if (Array.isArray(src) && src.length) { rows = src; break; }
+    }
+  }
+
+  const normalized = rows.map((row, i) => {
+    const sym = String(row.ticker||row.symbol||row.code||TICKERS[i%TICKERS.length]).toUpperCase();
+    const chg = num(row.changePercent??row.change??row.pct??row.dailyChangePercent??0);
+    const rvol = num(row.relativeVolume??row.rvol??row.volumeRatio??1);
+    return {
+      ticker: sym,
+      name: row.name||row.company||sym,
+      change: chg,
+      volume: rvol,
+      score:  clamp(row.score??row.aiScore??Math.max(40, 55 + chg * 3)),
+      sector: row.sector||inferTheme(sym),
+      catalyst: row.catalyst||row.reason||row.headline||inferCatalyst(sym),
+      source: row.source||row.dataQuality||"snapshot",
+      news: row.news||row.recentNews||[],
+      analystTone: row.analystTone||"",
+      riskFlags: row.riskFlags||[],
+      trendStatus: row.trendStatus||(chg>=3?"strong_uptrend":chg>=0.8?"uptrend":chg<=-3?"strong_downtrend":chg<=-0.8?"downtrend":"sideways"),
+    };
+  })
+  .filter(r => !/^\^|=F$|^DX-Y|^BZ-|^CL-/.test(r.ticker));
+
+  if (normalized.length) return normalized.slice(0, 12);
+
+  return TICKERS.slice(0, 6).map(ticker => ({
+    ticker, name:ticker, change:0, volume:1, score:55,
+    sector:inferTheme(ticker), catalyst:inferCatalyst(ticker),
+    source:"fallback", news:[], analystTone:"", riskFlags:[], trendStatus:"sideways",
   }));
 }
-
 function inferTheme(t="") {
   t = String(t).toUpperCase();
   if (["NVDA","AMD","AVGO","MU","MRVL","TSM","ASML","SMCI"].includes(t)) return "AI / 半导体";
@@ -376,19 +399,42 @@ async function boot() {
   const container = document.getElementById("sioContainer");
   if (!container) return;
 
-  let snapshot = {};
-  try {
-    snapshot = await fetchJson("/api/snapshot?mode=fast", 20000);
-  } catch (e) {
-    console.warn("[SIO v9] snapshot failed:", e.message);
+  // 1. Render immediately with whatever app.js has already loaded (no extra fetch wait)
+  const existing = window._specularisDashboard || window.__latestSnapshot || {};
+  if (Object.keys(existing).length) {
+    container.classList.remove("is-loading");
+    renderSIO(container, existing);
   }
 
-  container.classList.remove("is-loading");
-  renderSIO(container, snapshot);
-
-  setInterval(async () => {
-    try { snapshot = await fetchJson("/api/snapshot?mode=fast", 20000); } catch {}
+  // 2. If no existing data yet, do our own fetch as fallback
+  let snapshot = existing;
+  if (!Object.keys(existing).length) {
+    try {
+      snapshot = await fetchJson("/api/snapshot?mode=fast", 20000);
+    } catch (e) {
+      console.warn("[SIO v9] snapshot fetch failed:", e.message);
+    }
+    container.classList.remove("is-loading");
     renderSIO(container, snapshot);
+  }
+
+  // 3. Re-render whenever main app fires a snapshot event
+  const onSnap = (e) => {
+    const data = e.detail || window._specularisDashboard || snapshot;
+    renderSIO(container, data);
+  };
+  window.addEventListener("specularis-snapshot", onSnap);
+  document.addEventListener("specularis:snapshotReady", onSnap);
+
+  // 4. Periodic refresh (every 5 min) as safety net
+  setInterval(async () => {
+    const fresh = window._specularisDashboard;
+    if (fresh && Object.keys(fresh).length) {
+      renderSIO(container, fresh);
+    } else {
+      try { snapshot = await fetchJson("/api/snapshot?mode=fast", 20000); } catch {}
+      renderSIO(container, snapshot);
+    }
   }, CHECK_INTERVAL_MS);
 }
 

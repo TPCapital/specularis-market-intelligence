@@ -538,6 +538,8 @@ async function refreshSequentially() {
     console.warn("server snapshot fallback", error);
     return null;
   })) || loadCachedSources() || fallbackSources();
+  // v9: expose raw snapshot globally so render() can broadcast it to v9 modules
+  window.__specularisRawSources = sources;
   render(buildDashboard(sources));
 }
 
@@ -1884,9 +1886,12 @@ function render(dashboard) {
   renderCommandDeck(dashboard);
   renderProWorkspaces(dashboard);
   setLoading(false);
-  // Broadcast snapshot to v9 modules (news-radar, event-monitor-ui, position-tracker)
+  // Broadcast snapshot to v9 modules (news-radar, event-monitor-ui, position-tracker, SIO, ADL)
+  // Use raw server JSON from sources._rawSnapshot which contains marketData.quotes
   try {
-    window.dispatchEvent(new CustomEvent("specularis-snapshot", { detail: dashboard._rawSnapshot || dashboard }));
+    const rawSrc = window.__specularisRawSources;
+    const rawSnap = rawSrc?._rawSnapshot || rawSrc || dashboard;
+    window.dispatchEvent(new CustomEvent("specularis-snapshot", { detail: rawSnap }));
   } catch {}
 }
 

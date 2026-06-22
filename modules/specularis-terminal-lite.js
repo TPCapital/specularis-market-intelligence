@@ -101,6 +101,7 @@ function bridgeRawSnapshot(raw = {}) {
   };
   window._specularisRawSnapshot = raw;
   window._specularisDashboard = bridged;
+  window.__latestSnapshot = bridged; // v9: alias for ADL + SIO modules
   latestSnapshot = bridged;
   return bridged;
 }
@@ -193,6 +194,7 @@ function bridgeAutoIntelPayload(payload = {}) {
   };
   window._specularisAutoIntel = payload;
   window._specularisDashboard = bridged;
+  window.__latestSnapshot = bridged; // v9: alias
   latestAutoIntel = payload;
   latestSnapshot = bridged;
   return bridged;
@@ -283,6 +285,14 @@ function initModules() {
   safeRender("AI Decision Layer", "adlContainer", () => renderAIDecisionLayer("adlContainer", getModuleStates, latestSnapshot));
   safeRender("AI Prompt Export", "apeContainer", () => renderAIPromptExport("apeContainer", getModuleStates));
   emitSnapshotReady(latestSnapshot, "initial-dashboard");
+
+  // v9 fix: re-render ADL after fresh snapshot arrives (data may not be present at init time)
+  document.addEventListener("specularis:snapshotReady", () => {
+    const snap = window._specularisDashboard || window.__latestSnapshot || {};
+    safeRender("AI Decision Layer", "adlContainer", () =>
+      renderAIDecisionLayer("adlContainer", getModuleStates, snap));
+  }, { once: true });
+
   fetchFreshSnapshot("initial-load");
   fetchAutoIntel("initial-load");
   window.__specularisRefreshSnapshot = () => fetchFreshSnapshot("console");

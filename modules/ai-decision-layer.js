@@ -216,18 +216,89 @@ function renderADLCard(ticker, sipEntry, oilEntry, regime, isPlaceholder) {
   </div>`;
 }
 
+// Build minimal SIP-compatible entry from a raw quote object (for when SIP state is empty)
+function sipEntryFromQuote(ticker, q) {
+  if (!q) return null;
+  const price = Number(q.price ?? q.value ?? q.close ?? 0);
+  if (!price) return null;
+  const chg = Number(q.changePercent ?? q.change ?? q.preMarketChange ?? 0);
+  const rvol = Number(q.relativeVolume ?? q.rvol ?? 1);
+  let trendStatus = "sideways";
+  if (chg >= 3) trendStatus = "strong_uptrend";
+  else if (chg >= 0.8) trendStatus = "uptrend";
+  else if (chg <= -3) trendStatus = "strong_downtrend";
+  else if (chg <= -0.8) trendStatus = "downtrend";
+  const SECTOR_MAP = {
+    NVDA:"AI 半导体", AMD:"AI 半导体", AVGO:"AI 半导体", MU:"AI 半导体", MRVL:"AI 半导体",
+    TSM:"AI 半导体", ASML:"半导体设备", SMCI:"AI 服务器",
+    PLTR:"AI 软件", ORCL:"AI 软件 / 云",
+    MSFT:"大型科技", AAPL:"大型科技", META:"大型科技", GOOGL:"大型科技", AMZN:"大型科技",
+    TSLA:"机器人 / 自动驾驶", SPY:"指数 ETF", QQQ:"指数 ETF",
+  };
+  return {
+    ticker,
+    sector: SECTOR_MAP[ticker] || "",
+    currentPrice: price,
+    dailyChangePercent: chg,
+    relativeVolume: rvol,
+    trendStatus,
+    dataStatus: q.dataQuality === "live" ? "live" : "delayed",
+    riskFlags: rvol > 2 ? ["high_beta"] : [],
+    news: [],
+    analystTone: "",
+    keySupport: null,
+    keyResistance: null,
+  };
+}
+
+// Extract raw quote map from any snapshot shape
+function extractQuoteMap(snapshot) {
+  const quoteMap = {};
+  const sources = [
+    snapshot?.marketData?.quotes,
+    snapshot?.sources?.marketData?.data?.quotes,
+    snapshot?.terminalLite?.stockIntelligencePro,
+    snapshot?.rawSnapshot?.marketData?.quotes,
+  ];
+  for (const arr of sources) {
+    if (!Array.isArray(arr)) continue;
+    for (const q of arr) {
+      const sym = q.symbol ?? q.ticker;
+      if (sym && !quoteMap[sym]) quoteMap[sym] = q;
+    }
+  }
+  return quoteMap;
+}
+
 export function renderAIDecisionLayer(containerId, getModuleStates, latestSnapshot) {
   const el = document.getElementById(containerId);
   if (!el) return;
   el.classList.remove("is-loading");
 
+  // Resolve best available snapshot
+  const snap = latestSnapshot
+    || window._specularisDashboard
+    || window.__latestSnapshot
+    || {};
+
   const states = getModuleStates?.() || {};
-  const sipEntries = states.sipState?.entries || [];
+
+  // Build sipMap: prefer SIP module state, fall back to raw quotes from snapshot
+  const sipEntries = states.sipState?.entries || Object.values(states.sipState || {}).filter(e => e?.ticker);
   const oilEntries = states.oilState?.entries || [];
-  const regime     = latestSnapshot?.risk || states.marketRegime || {};
+  const regime     = snap?.risk || states.marketRegime || {};
 
   const sipMap = Object.fromEntries(sipEntries.map(e => [e.ticker, e]));
   const oilMap = Object.fromEntries(oilEntries.map(e => [e.symbol || e.ticker, e]));
+
+  // Fill gaps with quote-derived entries
+  const quoteMap = extractQuoteMap(snap);
+  for (const ticker of WATCHLIST) {
+    if (!sipMap[ticker] && quoteMap[ticker]) {
+      const derived = sipEntryFromQuote(ticker, quoteMap[ticker]);
+      if (derived) sipMap[ticker] = derived;
+    }
+  }
 
   // Strategy mode banner (inspired by daily_stock_analysis three-phase)
   const mode = regime.mode || "Neutral";
@@ -267,8 +338,13 @@ export function renderAIDecisionLayer(containerId, getModuleStates, latestSnapsh
     </div>
   `;
 
-  // Wire up refresh on snapshot
-  document.addEventListener("specularis:snapshotReady", () => {
-    renderAIDecisionLayer(containerId, getModuleStates, window.__latestSnapshot);
-  });
+  // Re-render whenever fresh snapshot arrives (listen once, then re-attach)
+  const onReady = () => {
+    renderAIDecisionLayer(containerId, getModuleStates,
+      window._specularisDashboard || window.__latestSnapshot);
+  };
+  document.removeEventListener("specularis:snapshotReady", onReady);
+  document.addEventListener("specularis:snapshotReady", onReady, { once: true });
+  window.removeEventListener("specularis-snapshot", onReady);
+  window.addEventListener("specularis-snapshot", onReady, { once: true });
 }
