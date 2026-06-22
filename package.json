@@ -1,0 +1,14 @@
+{
+  "name": "specularis-v9",
+  "version": "9.0.0",
+  "description": "Specularis Market Intelligence v9 — PanWatch + UZI + Horizon + daily_stock_analysis",
+  "type": "module",
+  "engines": {
+    "node": "20.x"
+  },
+  "scripts": {
+    "build": "node -e \"console.log('Specularis v9 build complete')\"",
+    "dev": "node scripts/dev-server.js",
+    "preview": "node scripts/dev-server.js"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "buildCommand": "node -e \"console.log('Specularis v9 — 8 serverless functions, Hobby plan compatible')\"",
+  "outputDirectory": ".",
+  "cleanUrls": true,
+  "functions": {
+    "api/snapshot.js":               { "maxDuration": 30 },
+    "api/daily-report.js":           { "maxDuration": 30 },
+    "api/health.js":                 { "maxDuration": 10 },
+    "api/trade-decision.js":         { "maxDuration": 30 },
+    "api/stock-intel-enrichment.js": { "maxDuration": 30 },
+    "api/congress-intel.js":         { "maxDuration": 30 },
+    "api/daily-briefing.js":         { "maxDuration": 30 },
+    "api/event-monitor.js":          { "maxDuration": 15 }
+  },
+  "rewrites": [
+    { "source": "/api/auto-intel", "destination": "/api/stock-intel-enrichment?__auto_intel=1" },
+    { "source": "/api/provider-health", "destination": "/api/health?__provider_health=1" }
+  ],
+  "headers": [
+    { "source": "/",             "headers": [{ "key": "Cache-Control", "value": "no-store, max-age=0, must-revalidate" }] },
+    { "source": "/index.html",   "headers": [{ "key": "Cache-Control", "value": "no-store, max-age=0, must-revalidate" }] },
+    { "source": "/app.js",       "headers": [{ "key": "Cache-Control", "value": "no-store, max-age=0, must-revalidate" }] },
+    { "source": "/config.js",    "headers": [{ "key": "Cache-Control", "value": "no-store, max-age=0, must-revalidate" }] },
+    { "source": "/styles.css",   "headers": [{ "key": "Cache-Control", "value": "no-store, max-age=0, must-revalidate" }] },
+    { "source": "/i18n.js",      "headers": [{ "key": "Cache-Control", "value": "no-store, max-age=0, must-revalidate" }] },
+    { "source": "/modules/(.*)", "headers": [{ "key": "Cache-Control", "value": "no-store, max-age=0, must-revalidate" }] },
+    { "source": "/lib/(.*)",     "headers": [{ "key": "Cache-Control", "value": "no-store, max-age=0, must-revalidate" }] }
+  ]
+}

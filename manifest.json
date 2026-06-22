@@ -1,0 +1,13 @@
+{
+  "name": "Specularis v9 Market Intelligence",
+  "short_name": "Specularis",
+  "description": "AI美股情报终端 — PanWatch × UZI × Horizon × DSA",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0f1e",
+  "theme_color": "#0a0f1e",
+  "orientation": "any",
+  "icons": [
+    { "src": "/public/flag-us.png", "sizes": "192x192", "type": "image/png" }
+  ]
+}
